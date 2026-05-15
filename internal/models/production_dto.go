@@ -15,6 +15,7 @@ type CreateProductionOrderRequest struct {
 type ProductionOrderResponse struct {
 	ID               uuid.UUID             `json:"id"`
 	ProductModelCode string                `json:"product_model_code"`
+	TargetQuantity   int                   `json:"target_quantity"`
 	Status           ProductionOrderStatus `json:"status"`
 	Shortages        []ShortageLog         `json:"shortages,omitempty"`
 }

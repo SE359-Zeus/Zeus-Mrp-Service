@@ -10,5 +10,5 @@ func (s *ProductionService) PlanProduction(ctx context.Context, req models.Creat
 	// 1. Validate req
 	// 2. Create ProductionOrder entity
 	// 3. Save to repo
-	return nil, nil
+	return &models.ProductionOrderResponse{}, nil
 }

@@ -9,5 +9,5 @@ import (
 
 func (s *ProductionService) RunBOMExplosion(ctx context.Context, orderID uuid.UUID) ([]models.BOMExplosionResult, error) {
 	// TODO: Implement BOM explosion
-	return nil, nil
+	return []models.BOMExplosionResult{}, nil
 }
