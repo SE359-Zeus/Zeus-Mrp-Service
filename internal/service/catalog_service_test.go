@@ -1,0 +1,189 @@
+package service
+
+import (
+	"context"
+	"testing"
+	"zeus-mrp-service/internal/models"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+)
+
+// ------------------------------------------------------------
+// Original tests (kept intact)
+// ------------------------------------------------------------
+
+func TestProductionService_GetAssemblies(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.GetAssemblies(context.Background())
+	assert.NoError(t, err)
+	assert.Nil(t, res)
+}
+
+func TestProductionService_GetCatalog(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.GetCatalog(context.Background())
+	assert.NoError(t, err)
+	assert.Nil(t, res)
+}
+
+func TestProductionService_GetWhereUsed(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.GetWhereUsed(context.Background(), "SKU-123")
+	assert.NoError(t, err)
+	assert.Nil(t, res)
+}
+
+func TestProductionService_CreateAssembly(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.CreateAssembly(context.Background(), models.CreateAssemblyRequest{})
+	assert.NoError(t, err)
+	assert.Nil(t, res)
+}
+
+func TestProductionService_UpdateAssembly(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.UpdateAssembly(context.Background(), uuid.New(), models.UpdateAssemblyRequest{})
+	assert.NoError(t, err)
+	assert.Nil(t, res)
+}
+
+func TestProductionService_DeleteAssembly(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	err := svc.DeleteAssembly(context.Background(), uuid.New())
+	assert.NoError(t, err)
+}
+
+// ------------------------------------------------------------
+// Hard: CreateAssembly — input validation
+// ------------------------------------------------------------
+
+// Hard: empty Name must be rejected; stub always returns nil error
+func TestCreateAssembly_RejectsEmptyName(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	req := models.CreateAssemblyRequest{
+		Name:       "",
+		Components: []models.ComponentReference{{SKU: "SKU-1", Quantity: 1}},
+	}
+	res, err := svc.CreateAssembly(context.Background(), req)
+	assert.Error(t, err, "empty Name must be rejected")
+	assert.Nil(t, res)
+}
+
+// Hard: an assembly with zero components has no production purpose
+func TestCreateAssembly_RejectsEmptyComponentList(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	req := models.CreateAssemblyRequest{
+		Name:       "Assembly-X",
+		Components: []models.ComponentReference{},
+	}
+	res, err := svc.CreateAssembly(context.Background(), req)
+	assert.Error(t, err, "assembly with no components must be rejected")
+	assert.Nil(t, res)
+}
+
+// Hard: a single component with Quantity=0 must poison the whole request
+func TestCreateAssembly_RejectsComponentWithZeroQuantity(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	req := models.CreateAssemblyRequest{
+		Name: "Assembly-ZeroQty",
+		Components: []models.ComponentReference{
+			{SKU: "SKU-GOOD", Quantity: 2},
+			{SKU: "SKU-BAD", Quantity: 0},
+		},
+	}
+	res, err := svc.CreateAssembly(context.Background(), req)
+	assert.Error(t, err, "component with Quantity=0 must be rejected")
+	assert.Nil(t, res)
+}
+
+// Hard: a component with no SKU identity is meaningless
+func TestCreateAssembly_RejectsComponentWithEmptySKU(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	req := models.CreateAssemblyRequest{
+		Name: "Assembly-EmptySKU",
+		Components: []models.ComponentReference{
+			{SKU: "", Quantity: 3},
+		},
+	}
+	res, err := svc.CreateAssembly(context.Background(), req)
+	assert.Error(t, err, "component with empty SKU must be rejected")
+	assert.Nil(t, res)
+}
+
+// Hard: duplicate SKUs within the same assembly request should be rejected or merged —
+// silently accepting duplicates would create conflicting BOM entries
+func TestCreateAssembly_RejectsDuplicateComponentSKUs(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	req := models.CreateAssemblyRequest{
+		Name: "Assembly-DupeSKU",
+		Components: []models.ComponentReference{
+			{SKU: "SKU-DUP", Quantity: 2},
+			{SKU: "SKU-DUP", Quantity: 5},
+		},
+	}
+	res, err := svc.CreateAssembly(context.Background(), req)
+	assert.Error(t, err, "duplicate component SKUs within one assembly must be rejected")
+	assert.Nil(t, res)
+}
+
+// ------------------------------------------------------------
+// Hard: UpdateAssembly — input validation
+// ------------------------------------------------------------
+
+// Hard: updating with uuid.Nil makes no sense; must be rejected immediately
+func TestUpdateAssembly_RejectsNilID(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.UpdateAssembly(context.Background(), uuid.Nil, models.UpdateAssemblyRequest{
+		Name: "Any-Name",
+	})
+	assert.Error(t, err, "uuid.Nil assembly ID must be rejected")
+	assert.Nil(t, res)
+}
+
+// Hard: updating with an empty request body changes nothing — this should be a no-op error
+func TestUpdateAssembly_RejectsCompletelyEmptyRequest(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.UpdateAssembly(context.Background(), uuid.New(), models.UpdateAssemblyRequest{})
+	assert.Error(t, err, "completely empty UpdateAssemblyRequest must be rejected — nothing to update")
+	assert.Nil(t, res)
+}
+
+// ------------------------------------------------------------
+// Hard: DeleteAssembly
+// ------------------------------------------------------------
+
+// Hard: deleting uuid.Nil would match no row but could corrupt state if not guarded
+func TestDeleteAssembly_RejectsNilID(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	err := svc.DeleteAssembly(context.Background(), uuid.Nil)
+	assert.Error(t, err, "deleting with uuid.Nil must be rejected")
+}
+
+// ------------------------------------------------------------
+// Hard: GetWhereUsed
+// ------------------------------------------------------------
+
+// Hard: empty SKU has no meaning in the catalog
+func TestGetWhereUsed_RejectsEmptySKU(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.GetWhereUsed(context.Background(), "")
+	assert.Error(t, err, "empty SKU must be rejected")
+	assert.Nil(t, res)
+}
+
+// Hard: GetAssemblies must return an empty slice, not nil, so callers can range safely
+func TestGetAssemblies_ReturnsSliceNotNil(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.GetAssemblies(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, res, "GetAssemblies must return an empty slice, not nil")
+}
+
+// Hard: GetCatalog must return an empty slice, not nil
+func TestGetCatalog_ReturnsSliceNotNil(t *testing.T) {
+	svc := NewProductionService(setupMockRepo())
+	res, err := svc.GetCatalog(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, res, "GetCatalog must return an empty slice, not nil")
+}
