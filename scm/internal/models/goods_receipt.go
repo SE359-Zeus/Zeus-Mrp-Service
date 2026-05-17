@@ -1,0 +1,46 @@
+package models
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+type GRStatus string
+
+const (
+	GRStatusPending     GRStatus = "Pending"
+	GRStatusInspected   GRStatus = "Inspected"
+	GRStatusComplete    GRStatus = "Complete"
+	GRStatusDiscrepancy GRStatus = "Discrepancy"
+)
+
+type GoodsReceipt struct {
+	ID            string         `gorm:"type:varchar(50);primary_key"` // e.g., GR-2024-301
+	PORef         string         `gorm:"type:varchar(50);not null"`
+	VendorID      uuid.UUID      `gorm:"type:uuid;not null"`
+	Status        GRStatus       `gorm:"type:varchar(50);not null"`
+	ArrivalDate   time.Time      `gorm:"not null"`
+	OperatorID    string         `gorm:"type:varchar(100)"`
+	LockedBy      *string        `gorm:"type:varchar(100)"` // Optional lock owner
+	LockExpiresAt *time.Time     `gorm:""`                  // Lock expiration timestamp
+	CreatedAt     time.Time      `gorm:"autoCreateTime"`
+	UpdatedAt     time.Time      `gorm:"autoUpdateTime"`
+	DeletedAt     gorm.DeletedAt `gorm:"index"`
+
+	LineItems []GRLineItem `gorm:"foreignKey:GRID"`
+}
+
+type GRLineItem struct {
+	ID             uuid.UUID  `gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
+	GRID           string     `gorm:"type:varchar(50);not null"`
+	SKU            string     `gorm:"type:varchar(100);not null"`
+	Name           string     `gorm:"type:varchar(255);not null"`
+	OrderedQty     int        `gorm:"not null"`
+	ReceivedQty    *int       `gorm:""` // Pointer because it must be manually typed (blind receiving)
+	DefectiveQty   *int       `gorm:""`
+	AgingSensitive bool       `gorm:"not null;default:false"`
+	ProductionDate *time.Time `gorm:""` // Required if AgingSensitive is true
+	AgingLabel     string     `gorm:"type:varchar(255)"`
+}
