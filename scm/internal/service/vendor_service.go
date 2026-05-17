@@ -3,21 +3,22 @@ package service
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"zeus-scm-service/internal/models"
+
+	"github.com/google/uuid"
 )
 
-type VendorService interface {
+type IVendorService interface {
 	// GetOptimalSupplier routes a component shortage to the best active supplier based on QualityScore and UnitPrice
 	GetOptimalSupplier(ctx context.Context, sku string) (*models.Supplier, *models.SkuMapping, error)
-	
+
 	// UpdateSupplierMetrics recalculates OnTimeRate and DefectRate dynamically based on historical Goods Receipts
 	UpdateSupplierMetrics(ctx context.Context, supplierID uuid.UUID) error
 }
 
 type vendorService struct{}
 
-func NewVendorService() VendorService {
+func VendorService() IVendorService {
 	return &vendorService{}
 }
 

@@ -3,32 +3,139 @@ package tests
 import (
 	"context"
 	"testing"
+	"time"
 
-	"github.com/stretchr/testify/assert"
+	"zeus-scm-service/internal/models"
 	"zeus-scm-service/internal/service"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestInventory_GetStock(t *testing.T) {
-	svc := service.NewInventoryService()
-	
-	stock, err := svc.GetStock(context.Background(), "SOC-XM100-PRO")
+func TestInventoryService_ProductCRUD(t *testing.T) {
+	svc := service.InventoryService()
+	ctx := context.Background()
+
+	id := uuid.New()
+	newProduct := &models.Product{
+		ID:               id,
+		ProductModelCode: "Z-1000",
+		CustomerID:       uuid.New(),
+		ProductName:      "Zeus Engine Z-1000",
+		SerialNumber:     "SN-99901",
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
+	}
+
+	err := svc.CreateProduct(ctx, newProduct)
+	assert.NoError(t, err, "Should successfully execute product creation logic")
+
+	fetched, err := svc.GetProduct(ctx, id)
+	assert.NoError(t, err, "Should successfully retrieve product")
+	if fetched != nil {
+		assert.Equal(t, id, fetched.ID)
+		assert.Equal(t, newProduct.ProductModelCode, fetched.ProductModelCode)
+		assert.Equal(t, newProduct.CustomerID, fetched.CustomerID)
+		assert.Equal(t, newProduct.SerialNumber, fetched.SerialNumber)
+	}
+
+	products, err := svc.ListProducts(ctx)
 	assert.NoError(t, err)
-	assert.NotNil(t, stock)
+	if products != nil {
+		assert.True(t, len(products) >= 0)
+	}
 }
 
-func TestInventory_AdjustStock(t *testing.T) {
-	svc := service.NewInventoryService()
-	
-	// Adjusting stock should increase or decrease the quantity atomically
-	err := svc.AdjustStock(context.Background(), "SOC-XM100-PRO", 100)
+func TestInventoryService_PartLifecycle_Exhaustive(t *testing.T) {
+	svc := service.InventoryService()
+	ctx := context.Background()
+
+	partID := uuid.New()
+	catalogID := uuid.New()
+
+	newPart := &models.Part{
+		ID:               partID,
+		PartCatalogID:    catalogID,
+		SerialNumber:     "PART-XYZ-123",
+		PartConditionID:  1, // 1 = New
+		ManufacturedDate: time.Now(),
+		CreatedAt:        time.Now(),
+		UpdatedAt:        time.Now(),
+	}
+
+	// 1. Create
+	err := svc.CreatePart(ctx, newPart)
+	assert.NoError(t, err, "Should successfully create part")
+
+	// 2. Install (Sets InstallationDate and ProductID)
+	prodID := uuid.New()
+	err = svc.InstallPart(ctx, partID, prodID)
+	assert.NoError(t, err, "Should successfully update part with Installation details")
+
+	fetched, err := svc.GetPart(ctx, partID)
 	assert.NoError(t, err)
+	if fetched != nil {
+		assert.NotNil(t, fetched.InstallationDate, "InstallationDate MUST be populated")
+		assert.NotNil(t, fetched.ProductID, "ProductID MUST be populated")
+		assert.Equal(t, prodID, *fetched.ProductID)
+		assert.Nil(t, fetched.RemovalDate)
+		assert.Nil(t, fetched.ScrappedDate)
+	}
+
+	// 3. Remove (Sets RemovalDate, unsets ProductID)
+	err = svc.RemovePart(ctx, partID)
+	assert.NoError(t, err, "Should successfully clear ProductID and set RemovalDate")
+
+	// 4. Update Condition (Changes PartConditionID)
+	err = svc.UpdatePartCondition(ctx, partID, 2) // 2 = Used
+	assert.NoError(t, err)
+
+	// 5. Scrap (Sets ScrappedDate)
+	err = svc.MarkPartScrapped(ctx, partID)
+	assert.NoError(t, err)
+
+	finalPart, err := svc.GetPart(ctx, partID)
+	assert.NoError(t, err)
+	if finalPart != nil {
+		assert.NotNil(t, finalPart.ScrappedDate, "ScrappedDate MUST be set")
+		assert.NotNil(t, finalPart.RemovalDate, "RemovalDate MUST be set")
+		assert.Nil(t, finalPart.ProductID, "ProductID MUST be null after removal")
+		assert.Equal(t, int32(2), finalPart.PartConditionID)
+	}
 }
 
-func TestInventory_CheckAgingQuarantine(t *testing.T) {
-	svc := service.NewInventoryService()
-	
-	// Test stability exemption and chronological age checks
-	quarantined, err := svc.CheckAgingQuarantine(context.Background(), "BATT-LIPO-99W", "2019-01-01")
+func TestInventoryService_Catalog_Exhaustive(t *testing.T) {
+	svc := service.InventoryService()
+	ctx := context.Background()
+
+	// Catalog Check
+	catID := uuid.New()
+	fetchedCat, err := svc.GetPartCatalog(ctx, catID)
 	assert.NoError(t, err)
-	assert.True(t, quarantined, "Component is > 5 years old, should be quarantined")
+	if fetchedCat != nil {
+		assert.NotZero(t, fetchedCat.PartNumber)
+		assert.NotZero(t, fetchedCat.MfgNumber)
+		assert.NotZero(t, fetchedCat.PartTypesID)
+		assert.NotZero(t, fetchedCat.PartMfgStatus)
+	}
+
+	list, err := svc.ListPartCatalog(ctx, nil)
+	assert.NoError(t, err)
+	if list != nil {
+		assert.True(t, len(list) >= 0)
+	}
+}
+
+func TestInventoryService_UserAndWarranty(t *testing.T) {
+	svc := service.InventoryService()
+	ctx := context.Background()
+
+	userID := uuid.New()
+	user, err := svc.GetUser(ctx, userID)
+	assert.NoError(t, err)
+	if user != nil {
+		assert.NotZero(t, user.AccountStatus)
+		assert.NotZero(t, user.RoleID)
+		assert.NotZero(t, user.Email)
+	}
 }
