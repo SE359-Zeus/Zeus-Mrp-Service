@@ -1,3 +1,6 @@
 *.exe
 *.db
 *.txt
+debug_check
+debug_insert
+debug
