@@ -172,30 +172,4 @@ CREATE TABLE IF NOT EXISTS part_mfg_statuses (
     deleted_at DATETIME
 );
 
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    account_status INTEGER NOT NULL DEFAULT 1,
-    role_id INTEGER NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    full_name TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    phone_number TEXT NOT NULL,
-    province TEXT,
-    fcm_token TEXT,
-    installation_id TEXT,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at DATETIME
-);
-
-CREATE TABLE IF NOT EXISTS warranties (
-    id TEXT PRIMARY KEY,
-    customer_id TEXT NOT NULL,
-    product_id TEXT NOT NULL,
-    start_date DATETIME NOT NULL,
-    end_date DATETIME NOT NULL,
-    warranty_status TEXT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at DATETIME
-);
+-- Users and Warranties tables removed as per refactor.

@@ -21,4 +21,19 @@ func seedLookupTables(db *gorm.DB) {
 	for i, name := range poStates {
 		db.FirstOrCreate(&models.PurchaseOrderState{ID: int32(i + 1), Name: name}, models.PurchaseOrderState{Name: name})
 	}
+
+	grStates := []string{"Pending", "Inspected", "Complete", "Discrepancy"}
+	for i, name := range grStates {
+		db.FirstOrCreate(&models.GoodsReceiptState{ID: int32(i + 1), Name: name}, models.GoodsReceiptState{Name: name})
+	}
+
+	stockStates := []string{"In Stock", "Low Stock", "Out of Stock", "Discontinued"}
+	for i, name := range stockStates {
+		db.FirstOrCreate(&models.ComponentStockState{ID: int32(i + 1), Name: name}, models.ComponentStockState{Name: name})
+	}
+
+	shipmentStates := []string{"Scheduled", "In Transit", "Delivered", "Delayed"}
+	for i, name := range shipmentStates {
+		db.FirstOrCreate(&models.ShipmentState{ID: int32(i + 1), Name: name}, models.ShipmentState{Name: name})
+	}
 }

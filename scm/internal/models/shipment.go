@@ -17,10 +17,11 @@ const (
 )
 
 type Shipment struct {
-	ID         string         `gorm:"type:varchar(50);primary_key"` // e.g., SHP-2024-201
+	ID         string         `gorm:"type:varchar(50);primary_key"`
 	PORef      string         `gorm:"type:varchar(50);not null"`
 	SupplierID uuid.UUID      `gorm:"type:uuid;not null"`
 	Status     ShipmentStatus `gorm:"type:varchar(50);not null"`
+	State      ShipmentState  `gorm:"foreignKey:Status;references:Name"`
 	Carrier    string         `gorm:"type:varchar(100)"`
 	TrackingNo string         `gorm:"type:varchar(100)"`
 	Origin     string         `gorm:"type:varchar(255)"`

@@ -58,9 +58,10 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.PartCatalog{},
 		&models.PartCondition{},
 		&models.PartMfgStatus{},
-		&models.User{},
-		&models.Warranty{},
 		&models.ApiKey{},
-	&models.PurchaseOrderState{},
+		&models.PurchaseOrderState{},
+		&models.GoodsReceiptState{},
+		&models.ComponentStockState{},
+		&models.ShipmentState{},
 	)
 }

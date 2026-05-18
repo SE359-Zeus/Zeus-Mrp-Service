@@ -13,10 +13,9 @@ func SeedAll(db *gorm.DB) error {
 	gofakeit.Seed(0)
 
 	seedLookupTables(db)
-	users := seedUsers(db, 10)
 	suppliers := seedSuppliers(db, 5)
 
-	data, err := loadPartsData("../../reference/seeder/parts.json")
+	data, err := loadPartsData("../reference/seeder/parts.json")
 	if err != nil {
 		return fmt.Errorf("failed to load parts data: %w", err)
 	}
@@ -25,7 +24,7 @@ func SeedAll(db *gorm.DB) error {
 	_ = typeMap
 	modelsList := seedProductModels(db, data.Installations, catMap)
 	seedInventory(db, catMap, suppliers)
-	seedProductsAndParts(db, modelsList, users, catMap)
+	seedProductsAndParts(db, modelsList, catMap)
 
 	log.Println("SCM Seeder finished successfully.")
 	return nil

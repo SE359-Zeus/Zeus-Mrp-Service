@@ -1,5 +1,5 @@
-DROP TABLE IF EXISTS warranties;
-DROP TABLE IF EXISTS users;
+-- DROP TABLE IF EXISTS warranties; (Removed)
+-- DROP TABLE IF EXISTS users; (Removed)
 DROP TABLE IF EXISTS part_mfg_statuses;
 DROP TABLE IF EXISTS part_conditions;
 DROP TABLE IF EXISTS part_catalogs;

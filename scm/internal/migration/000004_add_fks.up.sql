@@ -23,7 +23,7 @@ ALTER TABLE new_parts RENAME TO parts;
 CREATE TABLE new_products (
     id TEXT PRIMARY KEY,
     product_model_code TEXT NOT NULL REFERENCES product_models(model_code),
-    customer_id TEXT NOT NULL REFERENCES users(id),
+    customer_id TEXT NOT NULL,
     product_name TEXT NOT NULL,
     serial_number TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -86,14 +86,15 @@ DROP TABLE part_catalogs;
 ALTER TABLE new_part_catalogs RENAME TO part_catalogs;
 
 -- Recreate parts_by_model
-CREATE TABLE new_parts_by_model (
+-- Recreate parts_by_models (plural to match GORM naming)
+CREATE TABLE new_parts_by_models (
     part_catalog_id TEXT NOT NULL REFERENCES part_catalogs(id),
     product_model_code TEXT NOT NULL REFERENCES product_models(model_code),
     quantity INTEGER NOT NULL,
     PRIMARY KEY (part_catalog_id, product_model_code)
 );
-INSERT INTO new_parts_by_model SELECT * FROM parts_by_model;
+INSERT INTO new_parts_by_models SELECT * FROM parts_by_model;
 DROP TABLE parts_by_model;
-ALTER TABLE new_parts_by_model RENAME TO parts_by_model;
+ALTER TABLE new_parts_by_models RENAME TO parts_by_models;
 
 PRAGMA foreign_keys=on;
