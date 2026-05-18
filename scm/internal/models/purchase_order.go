@@ -19,10 +19,11 @@ const (
 )
 
 type PurchaseOrder struct {
-	ID               string         `gorm:"type:varchar(50);primary_key"` // e.g., PO-2024-108
-	VendorID         uuid.UUID      `gorm:"type:uuid;not null"`
-	TargetBuild      string         `gorm:"type:varchar(255)"` // Optional MRP link
-	Status           POStatus       `gorm:"type:varchar(50);not null"`
+	ID               string         `gorm:"type:varchar(50);primary_key"`
+	VendorID               uuid.UUID         `gorm:"type:uuid;not null"`
+	TargetBuild               string         `gorm:"type:varchar(255)"`
+	Status               POStatus         `gorm:"type:varchar(50);not null"`
+	State               PurchaseOrderState         `gorm:"foreignKey:Status;references:Name"`
 	TotalValue       float64        `gorm:"not null"`
 	PaymentTerms     string         `gorm:"type:varchar(100)"`
 	ExpectedDelivery time.Time      `gorm:"not null"`

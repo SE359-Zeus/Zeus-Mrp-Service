@@ -61,5 +61,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.User{},
 		&models.Warranty{},
 		&models.ApiKey{},
+	&models.PurchaseOrderState{},
 	)
 }
