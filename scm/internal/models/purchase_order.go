@@ -34,7 +34,7 @@ type PurchaseOrder struct {
 }
 
 type POLineItem struct {
-	ID          uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
+	ID          uuid.UUID `gorm:"type:uuid;primary_key"`
 	POID        string    `gorm:"type:varchar(50);not null"`
 	SKU         string    `gorm:"type:varchar(100);not null"`
 	Description string    `gorm:"type:varchar(255);not null"`

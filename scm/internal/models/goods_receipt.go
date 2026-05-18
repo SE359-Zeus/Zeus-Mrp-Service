@@ -33,7 +33,7 @@ type GoodsReceipt struct {
 }
 
 type GRLineItem struct {
-	ID             uuid.UUID  `gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
+	ID             uuid.UUID  `gorm:"type:uuid;primary_key"`
 	GRID           string     `gorm:"type:varchar(50);not null"`
 	SKU            string     `gorm:"type:varchar(100);not null"`
 	Name           string     `gorm:"type:varchar(255);not null"`

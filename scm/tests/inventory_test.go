@@ -13,7 +13,9 @@ import (
 )
 
 func TestInventoryService_ProductCRUD(t *testing.T) {
-	svc := service.InventoryService()
+	db := setupTestDB()
+	db.AutoMigrate(&models.Product{}, &models.ProductModel{})
+	svc := service.NewInventoryService(db, nil)
 	ctx := context.Background()
 
 	id := uuid.New()
@@ -47,7 +49,9 @@ func TestInventoryService_ProductCRUD(t *testing.T) {
 }
 
 func TestInventoryService_PartLifecycle_Exhaustive(t *testing.T) {
-	svc := service.InventoryService()
+	db := setupTestDB()
+	db.AutoMigrate(&models.Part{}, &models.Product{}, &models.PartCatalog{})
+	svc := service.NewInventoryService(db, nil)
 	ctx := context.Background()
 
 	partID := uuid.New()
@@ -57,7 +61,7 @@ func TestInventoryService_PartLifecycle_Exhaustive(t *testing.T) {
 		ID:               partID,
 		PartCatalogID:    catalogID,
 		SerialNumber:     "PART-XYZ-123",
-		PartConditionID:  1, // 1 = New
+		PartConditionID:  1,
 		ManufacturedDate: time.Now(),
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
@@ -67,7 +71,7 @@ func TestInventoryService_PartLifecycle_Exhaustive(t *testing.T) {
 	err := svc.CreatePart(ctx, newPart)
 	assert.NoError(t, err, "Should successfully create part")
 
-	// 2. Install (Sets InstallationDate and ProductID)
+	// 2. Install
 	prodID := uuid.New()
 	err = svc.InstallPart(ctx, partID, prodID)
 	assert.NoError(t, err, "Should successfully update part with Installation details")
@@ -82,15 +86,15 @@ func TestInventoryService_PartLifecycle_Exhaustive(t *testing.T) {
 		assert.Nil(t, fetched.ScrappedDate)
 	}
 
-	// 3. Remove (Sets RemovalDate, unsets ProductID)
+	// 3. Remove
 	err = svc.RemovePart(ctx, partID)
 	assert.NoError(t, err, "Should successfully clear ProductID and set RemovalDate")
 
-	// 4. Update Condition (Changes PartConditionID)
-	err = svc.UpdatePartCondition(ctx, partID, 2) // 2 = Used
+	// 4. Update Condition
+	err = svc.UpdatePartCondition(ctx, partID, 2)
 	assert.NoError(t, err)
 
-	// 5. Scrap (Sets ScrappedDate)
+	// 5. Scrap
 	err = svc.MarkPartScrapped(ctx, partID)
 	assert.NoError(t, err)
 
@@ -105,37 +109,29 @@ func TestInventoryService_PartLifecycle_Exhaustive(t *testing.T) {
 }
 
 func TestInventoryService_Catalog_Exhaustive(t *testing.T) {
-	svc := service.InventoryService()
+	db := setupTestDB()
+	db.AutoMigrate(&models.PartCatalog{})
+	svc := service.NewInventoryService(db, nil)
 	ctx := context.Background()
 
-	// Catalog Check
 	catID := uuid.New()
 	fetchedCat, err := svc.GetPartCatalog(ctx, catID)
-	assert.NoError(t, err)
-	if fetchedCat != nil {
-		assert.NotZero(t, fetchedCat.PartNumber)
-		assert.NotZero(t, fetchedCat.MfgNumber)
-		assert.NotZero(t, fetchedCat.PartTypesID)
-		assert.NotZero(t, fetchedCat.PartMfgStatus)
-	}
+	assert.Error(t, err, "Should fail when catalog entry does not exist")
+	assert.Nil(t, fetchedCat)
 
 	list, err := svc.ListPartCatalog(ctx, nil)
 	assert.NoError(t, err)
-	if list != nil {
-		assert.True(t, len(list) >= 0)
-	}
+	assert.NotNil(t, list)
 }
 
 func TestInventoryService_UserAndWarranty(t *testing.T) {
-	svc := service.InventoryService()
+	db := setupTestDB()
+	db.AutoMigrate(&models.User{})
+	svc := service.NewInventoryService(db, nil)
 	ctx := context.Background()
 
 	userID := uuid.New()
 	user, err := svc.GetUser(ctx, userID)
-	assert.NoError(t, err)
-	if user != nil {
-		assert.NotZero(t, user.AccountStatus)
-		assert.NotZero(t, user.RoleID)
-		assert.NotZero(t, user.Email)
-	}
+	assert.Error(t, err, "Should fail when user does not exist")
+	assert.Nil(t, user)
 }

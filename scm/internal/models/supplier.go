@@ -16,7 +16,7 @@ const (
 )
 
 type Supplier struct {
-	ID           uuid.UUID      `gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
+	ID           uuid.UUID      `gorm:"type:uuid;primary_key"`
 	Name         string         `gorm:"type:varchar(255);not null"`
 	Contact      string         `gorm:"type:varchar(255);not null"`
 	Tier         SupplierTier   `gorm:"type:varchar(50);not null"`
@@ -31,7 +31,7 @@ type Supplier struct {
 }
 
 type SkuMapping struct {
-	ID           uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
+	ID           uuid.UUID `gorm:"type:uuid;primary_key"`
 	SupplierID   uuid.UUID `gorm:"type:uuid;not null"`
 	SKU          string    `gorm:"type:varchar(100);not null"` // Foreign reference to ComponentStock.SKU
 	Name         string    `gorm:"type:varchar(255);not null"`

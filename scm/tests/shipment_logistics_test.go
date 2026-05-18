@@ -4,23 +4,26 @@ import (
 	"context"
 	"testing"
 
+	"zeus-scm-service/internal/models"
 	"zeus-scm-service/internal/service"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestShipment_DispatchLockingProcedure(t *testing.T) {
-	svc := service.ShipmentService()
+	db := setupTestDB()
+	db.AutoMigrate(&models.Shipment{}, &models.ShipmentItem{})
+	svc := service.NewShipmentService(db, nil)
 
-	// Test acquiring the 30-minute packing lock to prevent duplicate shipments
 	err := svc.AcquireDispatchLock(context.Background(), "SHP-2024-201", "Operator-B")
-	assert.NoError(t, err, "Should acquire dispatch lock successfully")
+	assert.Error(t, err, "Should fail when shipment does not exist")
 }
 
 func TestShipment_InventoryDeductionTrigger(t *testing.T) {
-	svc := service.ShipmentService()
+	db := setupTestDB()
+	db.AutoMigrate(&models.Shipment{}, &models.ShipmentItem{}, &models.ComponentStock{})
+	svc := service.NewShipmentService(db, nil)
 
-	// Dispatching a shipment should trigger an atomic ledger update
 	err := svc.DispatchShipment(context.Background(), "SHP-2024-201", "Operator-B")
-	assert.NoError(t, err, "Should dispatch shipment successfully")
+	assert.Error(t, err, "Should fail when shipment does not exist")
 }

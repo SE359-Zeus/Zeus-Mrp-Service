@@ -1,0 +1,802 @@
+openapi: "3.0.3"
+info:
+  title: Zeus SCM API
+  description: Supply Chain Management module of the Zeus ERP system. Governs procurement, inventory, goods receipt, and outbound logistics.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development
+  - url: /api/v1
+    description: API base path
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    PurchaseOrder:
+      type: object
+      properties:
+        id:
+          type: string
+          example: PO-2025-1
+        vendor_id:
+          type: string
+          format: uuid
+        target_build:
+          type: string
+        status:
+          type: string
+          enum: [Draft, Approved, In Transit, Received, Partial, Void]
+        total_value:
+          type: number
+          format: float
+        payment_terms:
+          type: string
+        expected_delivery:
+          type: string
+          format: date-time
+        line_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/POLineItem'
+    POLineItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        po_id:
+          type: string
+        sku:
+          type: string
+        description:
+          type: string
+        ordered_qty:
+          type: integer
+        received_qty:
+          type: integer
+        unit_price:
+          type: number
+          format: float
+    Supplier:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        contact:
+          type: string
+        tier:
+          type: string
+          enum: [Preferred, Qualified, Under Review]
+        lead_time_days:
+          type: integer
+        quality_score:
+          type: number
+          format: float
+        on_time_rate:
+          type: number
+          format: float
+    SkuMapping:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        supplier_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        name:
+          type: string
+        unit_price:
+          type: number
+          format: float
+        lead_time_days:
+          type: integer
+        min_order_qty:
+          type: integer
+    GoodsReceipt:
+      type: object
+      properties:
+        id:
+          type: string
+          example: GR-2025-1
+        po_ref:
+          type: string
+        vendor_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [Pending, Inspected, Complete, Discrepancy]
+        arrival_date:
+          type: string
+          format: date-time
+        operator_id:
+          type: string
+        locked_by:
+          type: string
+          nullable: true
+        lock_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    GRLineItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        gr_id:
+          type: string
+        sku:
+          type: string
+        name:
+          type: string
+        ordered_qty:
+          type: integer
+        received_qty:
+          type: integer
+          nullable: true
+        defective_qty:
+          type: integer
+          nullable: true
+        aging_sensitive:
+          type: boolean
+        production_date:
+          type: string
+          format: date
+          nullable: true
+        aging_label:
+          type: string
+    Shipment:
+      type: object
+      properties:
+        id:
+          type: string
+          example: SHP-2025-1
+        po_ref:
+          type: string
+        supplier_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [Scheduled, In Transit, Delivered, Delayed]
+        carrier:
+          type: string
+        tracking_no:
+          type: string
+        ship_date:
+          type: string
+          format: date-time
+        eta:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipmentItem'
+    ShipmentItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        shipment_id:
+          type: string
+        sku:
+          type: string
+        description:
+          type: string
+        qty:
+          type: integer
+    ComponentStock:
+      type: object
+      properties:
+        sku:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        stock_qty:
+          type: integer
+        reorder_point:
+          type: integer
+        unit_cost:
+          type: number
+          format: float
+        status:
+          type: string
+          enum: [In Stock, Low Stock, Out of Stock, Discontinued]
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_model_code:
+          type: string
+        customer_id:
+          type: string
+          format: uuid
+        product_name:
+          type: string
+        serial_number:
+          type: string
+    Part:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        part_catalog_id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+          nullable: true
+        serial_number:
+          type: string
+        part_condition_id:
+          type: integer
+        manufactured_date:
+          type: string
+          format: date-time
+        installation_date:
+          type: string
+          format: date-time
+          nullable: true
+        removal_date:
+          type: string
+          format: date-time
+          nullable: true
+        scrapped_date:
+          type: string
+          format: date-time
+          nullable: true
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [System]
+      security: []
+      responses:
+        '200':
+          description: OK
+
+  /vendors/optimal:
+    get:
+      summary: Route component shortage to optimal supplier
+      tags: [Vendors]
+      parameters:
+        - name: sku
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Optimal supplier and mapping
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  supplier:
+                    $ref: '#/components/schemas/Supplier'
+                  mapping:
+                    $ref: '#/components/schemas/SkuMapping'
+        '404':
+          description: No optimal supplier found
+
+  /vendors/{id}/recalc-metrics:
+    post:
+      summary: Recalculate supplier OnTimeRate and QualityScore
+      tags: [Vendors]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Metrics updated
+
+  /purchase-orders/draft:
+    post:
+      summary: Create a new PO draft
+      tags: [Purchase Orders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vendor_id:
+                  type: string
+                  format: uuid
+                target_build:
+                  type: string
+              required: [vendor_id]
+      responses:
+        '201':
+          description: PO draft created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrder'
+
+  /purchase-orders/{poId}/line-items:
+    post:
+      summary: Add a line item with Eager Slot-Locking (30-min TTL)
+      tags: [Purchase Orders]
+      parameters:
+        - name: poId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sku:
+                  type: string
+                qty:
+                  type: integer
+                  minimum: 1
+              required: [sku, qty]
+      responses:
+        '200':
+          description: Line item added
+
+  /purchase-orders/{poId}/approve:
+    post:
+      summary: Approve PO (transition Draft→Approved)
+      tags: [Purchase Orders]
+      parameters:
+        - name: poId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: PO approved
+
+  /purchase-orders/{poId}/state:
+    put:
+      summary: Transition PO state (forward only)
+      tags: [Purchase Orders]
+      parameters:
+        - name: poId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_state:
+                  type: string
+                  enum: [Draft, Approved, In Transit, Received, Partial, Void]
+              required: [new_state]
+      responses:
+        '200':
+          description: State transitioned
+
+  /goods-receipts/{grId}/lock:
+    post:
+      summary: Acquire 60-min operator lock on Goods Receipt
+      tags: [Goods Receipts]
+      parameters:
+        - name: grId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operator_id:
+                  type: string
+              required: [operator_id]
+      responses:
+        '200':
+          description: Lock acquired
+        '409':
+          description: Already locked by another operator
+    delete:
+      summary: Release 60-min operator lock on Goods Receipt
+      tags: [Goods Receipts]
+      parameters:
+        - name: grId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lock released
+
+  /goods-receipts/{grId}/process:
+    post:
+      summary: Process blind receipt with manual counts
+      tags: [Goods Receipts]
+      parameters:
+        - name: grId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operator_id:
+                  type: string
+                counts:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      received:
+                        type: integer
+                        minimum: 0
+                      defective:
+                        type: integer
+                        minimum: 0
+              required: [operator_id, counts]
+      responses:
+        '200':
+          description: Blind receipt processed
+
+  /shipments/{shipmentId}/lock:
+    post:
+      summary: Acquire 30-min dispatch lock
+      tags: [Shipments]
+      parameters:
+        - name: shipmentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operator_id:
+                  type: string
+              required: [operator_id]
+      responses:
+        '200':
+          description: Dispatch lock acquired
+        '409':
+          description: Already dispatched
+
+  /shipments/{shipmentId}/dispatch:
+    post:
+      summary: Dispatch shipment (atomic inventory deduction)
+      tags: [Shipments]
+      parameters:
+        - name: shipmentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operator_id:
+                  type: string
+                carrier:
+                  type: string
+                tracking_no:
+                  type: string
+              required: [operator_id]
+      responses:
+        '200':
+          description: Shipment dispatched
+
+  /inventory/products:
+    get:
+      summary: List all products
+      tags: [Inventory]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Product'
+    post:
+      summary: Create a product
+      tags: [Inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+      responses:
+        '201':
+          description: Product created
+
+  /inventory/products/{id}:
+    get:
+      summary: Get product by ID
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+
+  /inventory/product-models/{code}:
+    get:
+      summary: Get product model by code
+      tags: [Inventory]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product model
+
+  /inventory/product-models:
+    post:
+      summary: Create a product model
+      tags: [Inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model_code:
+                  type: string
+                model_name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Product model created
+
+  /inventory/parts:
+    get:
+      summary: List parts (filterable)
+      tags: [Inventory]
+      parameters:
+        - name: catalog_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: product_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: condition_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Part'
+    post:
+      summary: Create a part
+      tags: [Inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Part'
+      responses:
+        '201':
+          description: Part created
+
+  /inventory/parts/{id}:
+    get:
+      summary: Get part by ID
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Part'
+
+  /inventory/parts/{id}/condition:
+    put:
+      summary: Update part condition
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                condition_id:
+                  type: integer
+              required: [condition_id]
+      responses:
+        '200':
+          description: Condition updated
+
+  /inventory/parts/{id}/scrap:
+    post:
+      summary: Mark part as scrapped
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Part scrapped
+
+  /inventory/parts/{id}/install:
+    post:
+      summary: Install part into a product
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                product_id:
+                  type: string
+                  format: uuid
+              required: [product_id]
+      responses:
+        '200':
+          description: Part installed
+
+  /inventory/parts/{id}/remove:
+    post:
+      summary: Remove part from product
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Part removed
+
+  /inventory/part-catalog:
+    get:
+      summary: List part catalog (filterable by type)
+      tags: [Inventory]
+      parameters:
+        - name: type_id
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Part catalog list
+
+  /inventory/part-catalog/{id}:
+    get:
+      summary: Get part catalog entry by ID
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Part catalog entry
+
+  /inventory/users/{id}:
+    get:
+      summary: Get user by ID
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User
