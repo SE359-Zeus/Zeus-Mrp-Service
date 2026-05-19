@@ -2,8 +2,8 @@ package seeder
 
 import (
 	"fmt"
-	"time"
 	"gorm.io/gorm"
+	"time"
 	"zeus-scm-service/internal/models"
 )
 
@@ -12,7 +12,7 @@ func seedProductModels(db *gorm.DB, installs map[string][]PartInstallationData, 
 		{ModelCode: "82SN003JVN", ModelName: "IdeaPad 5 Pro 16ARH7"},
 		{ModelCode: "83LY00HQVN", ModelName: "Legion 5 15IRX10"},
 	}
-	
+
 	newModels := []models.ProductModel{
 		{ModelCode: "21CB000QUS", ModelName: "ThinkPad X1 Carbon Gen 11"},
 		{ModelCode: "82A3000GUS", ModelName: "Yoga Slim 7i"},
@@ -30,7 +30,7 @@ func seedProductModels(db *gorm.DB, installs map[string][]PartInstallationData, 
 
 		bomList, exists := installs[m.ModelCode]
 		if !exists {
-			bomList = installs["82SN003JVN"] 
+			bomList = installs["82SN003JVN"]
 		}
 
 		for _, item := range bomList {

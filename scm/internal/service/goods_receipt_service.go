@@ -46,7 +46,7 @@ func (s *goodsReceiptService) AcquireLock(ctx context.Context, grID string, oper
 	now := time.Now()
 	expiresAt := now.Add(60 * time.Minute)
 	return s.db.WithContext(ctx).Model(&gr).Updates(map[string]interface{}{
-		"locked_by":      operatorID,
+		"locked_by":       operatorID,
 		"lock_expires_at": expiresAt,
 	}).Error
 }

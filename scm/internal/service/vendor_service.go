@@ -71,9 +71,9 @@ func (s *vendorService) UpdateSupplierMetrics(ctx context.Context, supplierID uu
 		s.db.WithContext(ctx).Model(&models.Supplier{}).
 			Where("id = ?", supplierID).
 			Updates(map[string]interface{}{
-				"on_time_rate":   0,
-				"quality_score":  100,
-				"updated_at":     nil,
+				"on_time_rate":  0,
+				"quality_score": 100,
+				"updated_at":    nil,
 			})
 		return nil
 	}

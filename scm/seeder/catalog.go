@@ -2,9 +2,9 @@ package seeder
 
 import (
 	"fmt"
-	"time"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"time"
 	"zeus-scm-service/internal/models"
 )
 
