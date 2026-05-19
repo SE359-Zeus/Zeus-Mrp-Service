@@ -1,10 +1,10 @@
 package seeder
 
 import (
-	"time"
-	"github.com/google/uuid"
 	"github.com/brianvoe/gofakeit/v6"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"time"
 	"zeus-scm-service/internal/models"
 )
 

@@ -16,7 +16,7 @@ type Part struct {
 	InstallationDate *time.Time
 	RemovalDate      *time.Time
 	ScrappedDate     *time.Time
-	CreatedAt        time.Time  `gorm:"not null"`
-	UpdatedAt        time.Time  `gorm:"not null"`
+	CreatedAt        time.Time `gorm:"not null"`
+	UpdatedAt        time.Time `gorm:"not null"`
 	DeletedAt        *time.Time
 }

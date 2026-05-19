@@ -17,18 +17,18 @@ const (
 )
 
 type GoodsReceipt struct {
-	ID            string         `gorm:"type:varchar(50);primary_key"`
-	PORef         string         `gorm:"type:varchar(50);not null"`
-	VendorID      uuid.UUID      `gorm:"type:uuid;not null"`
-	Status        GRStatus       `gorm:"type:varchar(50);not null"`
+	ID            string            `gorm:"type:varchar(50);primary_key"`
+	PORef         string            `gorm:"type:varchar(50);not null"`
+	VendorID      uuid.UUID         `gorm:"type:uuid;not null"`
+	Status        GRStatus          `gorm:"type:varchar(50);not null"`
 	State         GoodsReceiptState `gorm:"foreignKey:Status;references:Name"`
-	ArrivalDate   time.Time      `gorm:"not null"`
-	OperatorID    string         `gorm:"type:varchar(100)"`
-	LockedBy      *string        `gorm:"type:varchar(100)"` // Optional lock owner
-	LockExpiresAt *time.Time     `gorm:""`                  // Lock expiration timestamp
-	CreatedAt     time.Time      `gorm:"autoCreateTime"`
-	UpdatedAt     time.Time      `gorm:"autoUpdateTime"`
-	DeletedAt     gorm.DeletedAt `gorm:"index"`
+	ArrivalDate   time.Time         `gorm:"not null"`
+	OperatorID    string            `gorm:"type:varchar(100)"`
+	LockedBy      *string           `gorm:"type:varchar(100)"` // Optional lock owner
+	LockExpiresAt *time.Time        `gorm:""`                  // Lock expiration timestamp
+	CreatedAt     time.Time         `gorm:"autoCreateTime"`
+	UpdatedAt     time.Time         `gorm:"autoUpdateTime"`
+	DeletedAt     gorm.DeletedAt    `gorm:"index"`
 
 	LineItems []GRLineItem `gorm:"foreignKey:GRID"`
 }
