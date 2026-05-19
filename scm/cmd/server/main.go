@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 	"time"
@@ -15,6 +16,7 @@ import (
 	openapiui "github.com/PeterTakahashi/gin-openapi/openapiui"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -85,7 +87,15 @@ func main() {
 		public.GET("/docs/*any", openapiui.WrapHandler(openapiui.Config{
 			Title: "Zeus SCM API",
 			SpecProvider: func() ([]byte, error) {
-				return os.ReadFile("docs/openapi.yaml")
+				data, err := os.ReadFile("docs/openapi.yaml")
+				if err != nil {
+					return nil, err
+				}
+				var parsed any
+				if err := yaml.Unmarshal(data, &parsed); err != nil {
+					return nil, err
+				}
+				return json.Marshal(parsed)
 			},
 			Theme: "dark",
 		}))
