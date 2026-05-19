@@ -11,6 +11,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/scm
 
+defaults:
+  run:
+    working-directory: scm
+    
 jobs:
   build-test-push:
     runs-on: ubuntu-latest
