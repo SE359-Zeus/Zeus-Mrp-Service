@@ -2,8 +2,10 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"zeus-scm-service/internal/models"
+	"zeus-scm-service/internal/pagination"
 	"zeus-scm-service/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -32,13 +34,27 @@ func (h *InventoryHandler) GetProduct(c *gin.Context) {
 	c.JSON(http.StatusOK, p)
 }
 
+func parsePaginationParams(c *gin.Context) pagination.Params {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "15"))
+	return pagination.Params{
+		Page:  page,
+		Limit: limit,
+		Sort:  c.DefaultQuery("sort_by", "created_at"),
+		Order: c.DefaultQuery("sort_dir", "desc"),
+	}
+}
+
 func (h *InventoryHandler) ListProducts(c *gin.Context) {
-	products, err := h.svc.ListProducts(c.Request.Context())
+	params := parsePaginationParams(c)
+	q := c.Query("q")
+
+	products, meta, err := h.svc.ListProducts(c.Request.Context(), params, q)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, products)
+	c.JSON(http.StatusOK, pagination.Response{Data: products, Pagination: *meta})
 }
 
 func (h *InventoryHandler) CreateProduct(c *gin.Context) {
@@ -111,12 +127,16 @@ func (h *InventoryHandler) ListParts(c *gin.Context) {
 			conditionID = &parsed
 		}
 	}
-	parts, err := h.svc.ListParts(c.Request.Context(), catalogID, productID, conditionID)
+
+	params := parsePaginationParams(c)
+	q := c.Query("q")
+
+	parts, meta, err := h.svc.ListParts(c.Request.Context(), catalogID, productID, conditionID, params, q)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, parts)
+	c.JSON(http.StatusOK, pagination.Response{Data: parts, Pagination: *meta})
 }
 
 func (h *InventoryHandler) CreatePart(c *gin.Context) {
@@ -224,10 +244,80 @@ func (h *InventoryHandler) ListPartCatalog(c *gin.Context) {
 			typeID = &parsed
 		}
 	}
-	catalogs, err := h.svc.ListPartCatalog(c.Request.Context(), typeID)
+
+	params := parsePaginationParams(c)
+	q := c.Query("q")
+
+	catalogs, meta, err := h.svc.ListPartCatalog(c.Request.Context(), typeID, params, q)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, catalogs)
+	c.JSON(http.StatusOK, pagination.Response{Data: catalogs, Pagination: *meta})
+}
+
+func (h *InventoryHandler) UpdateProduct(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	var fields map[string]any
+	if err := c.ShouldBindJSON(&fields); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// strip internal fields
+	delete(fields, "id")
+	delete(fields, "ID")
+	delete(fields, "created_at")
+	delete(fields, "createdAt")
+	delete(fields, "updated_at")
+	delete(fields, "updatedAt")
+	delete(fields, "deleted_at")
+	delete(fields, "deletedAt")
+
+	p, err := h.svc.UpdateProduct(c.Request.Context(), id, fields)
+	if err != nil {
+		if err == service.ErrNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, p)
+}
+
+func (h *InventoryHandler) UpdatePart(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	var fields map[string]any
+	if err := c.ShouldBindJSON(&fields); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// strip internal fields
+	delete(fields, "id")
+	delete(fields, "ID")
+	delete(fields, "created_at")
+	delete(fields, "createdAt")
+	delete(fields, "updated_at")
+	delete(fields, "updatedAt")
+	delete(fields, "deleted_at")
+	delete(fields, "deletedAt")
+
+	p, err := h.svc.UpdatePart(c.Request.Context(), id, fields)
+	if err != nil {
+		if err == service.ErrNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, p)
 }

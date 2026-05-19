@@ -21,6 +21,17 @@ components:
       properties:
         error:
           type: string
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_rows:
+          type: integer
+        total_pages:
+          type: integer
     PurchaseOrder:
       type: object
       properties:
@@ -237,6 +248,12 @@ components:
           type: string
         serial_number:
           type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     Part:
       type: object
       properties:
@@ -269,6 +286,12 @@ components:
           type: string
           format: date-time
           nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
 security:
   - BearerAuth: []
@@ -543,16 +566,53 @@ paths:
 
   /inventory/products:
     get:
-      summary: List all products
+      summary: List products with pagination, sorting, and search
       tags: [Inventory]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Page number
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 15
+          description: Items per page (max 100)
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            default: created_at
+            enum: [created_at, updated_at, product_name, serial_number]
+          description: Sort column
+        - name: sort_dir
+          in: query
+          schema:
+            type: string
+            default: desc
+            enum: [asc, desc]
+          description: Sort direction
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search keyword (matches product_name, serial_number)
       responses:
         '200':
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Product'
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
     post:
       summary: Create a product
       tags: [Inventory]
@@ -583,6 +643,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Product'
+    put:
+      summary: Update product fields (partial update)
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                product_model_code:
+                  type: string
+                customer_id:
+                  type: string
+                  format: uuid
+                product_name:
+                  type: string
+                serial_number:
+                  type: string
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          description: Product not found
 
   /inventory/product-models/{code}:
     get:
@@ -621,7 +716,7 @@ paths:
 
   /inventory/parts:
     get:
-      summary: List parts (filterable)
+      summary: List parts with filtering, pagination, sorting, and search
       tags: [Inventory]
       parameters:
         - name: catalog_id
@@ -629,23 +724,62 @@ paths:
           schema:
             type: string
             format: uuid
+          description: Filter by part catalog ID
         - name: product_id
           in: query
           schema:
             type: string
             format: uuid
+          description: Filter by product ID
         - name: condition_id
           in: query
           schema:
             type: integer
+          description: Filter by part condition ID
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Page number
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 15
+          description: Items per page (max 100)
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            default: created_at
+            enum: [created_at, updated_at, serial_number, part_condition_id]
+          description: Sort column
+        - name: sort_dir
+          in: query
+          schema:
+            type: string
+            default: desc
+            enum: [asc, desc]
+          description: Sort direction
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search keyword (matches serial_number)
       responses:
         '200':
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Part'
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Part'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
     post:
       summary: Create a part
       tags: [Inventory]
@@ -676,6 +810,58 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Part'
+    put:
+      summary: Update part fields (partial update)
+      tags: [Inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                part_catalog_id:
+                  type: string
+                  format: uuid
+                product_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                serial_number:
+                  type: string
+                part_condition_id:
+                  type: integer
+                manufactured_date:
+                  type: string
+                  format: date-time
+                installation_date:
+                  type: string
+                  format: date-time
+                  nullable: true
+                removal_date:
+                  type: string
+                  format: date-time
+                  nullable: true
+                scrapped_date:
+                  type: string
+                  format: date-time
+                  nullable: true
+      responses:
+        '200':
+          description: Part updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Part'
+        '404':
+          description: Part not found
 
   /inventory/parts/{id}/condition:
     put:
@@ -760,16 +946,59 @@ paths:
 
   /inventory/part-catalog:
     get:
-      summary: List part catalog (filterable by type)
+      summary: List part catalog with filtering, pagination, sorting, and search
       tags: [Inventory]
       parameters:
         - name: type_id
           in: query
           schema:
             type: integer
+          description: Filter by part type ID
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Page number
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 15
+          description: Items per page (max 100)
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            default: created_at
+            enum: [created_at, updated_at, part_number, mfg_number]
+          description: Sort column
+        - name: sort_dir
+          in: query
+          schema:
+            type: string
+            default: desc
+            enum: [asc, desc]
+          description: Sort direction
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search keyword (matches part_number, mfg_number, description)
       responses:
         '200':
           description: Part catalog list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Part'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
 
   /inventory/part-catalog/{id}:
     get:

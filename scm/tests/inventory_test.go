@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"zeus-scm-service/internal/models"
+	"zeus-scm-service/internal/pagination"
 	"zeus-scm-service/internal/service"
 
 	"github.com/google/uuid"
@@ -41,7 +42,7 @@ func TestInventoryService_ProductCRUD(t *testing.T) {
 		assert.Equal(t, newProduct.SerialNumber, fetched.SerialNumber)
 	}
 
-	products, err := svc.ListProducts(ctx)
+	products, _, err := svc.ListProducts(ctx, pagination.Params{Page: 1}, "")
 	assert.NoError(t, err)
 	if products != nil {
 		assert.True(t, len(products) >= 0)
@@ -119,7 +120,7 @@ func TestInventoryService_Catalog_Exhaustive(t *testing.T) {
 	assert.Error(t, err, "Should fail when catalog entry does not exist")
 	assert.Nil(t, fetchedCat)
 
-	list, err := svc.ListPartCatalog(ctx, nil)
+	list, _, err := svc.ListPartCatalog(ctx, nil, pagination.Params{Page: 1}, "")
 	assert.NoError(t, err)
 	assert.NotNil(t, list)
 }
