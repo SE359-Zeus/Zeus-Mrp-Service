@@ -231,17 +231,3 @@ func (h *InventoryHandler) ListPartCatalog(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, catalogs)
 }
-
-func (h *InventoryHandler) GetUser(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-	u, err := h.svc.GetUser(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, u)
-}

@@ -1,4 +1,4 @@
-.PHONY: build run test clean vet lint dev help
+.PHONY: build run seed test clean vet lint dev help
 
 APP_NAME   := zeus-scm
 BUILD_DIR  := ./build
@@ -9,6 +9,7 @@ help:
 	@echo "Usage:"
 	@echo "  make build     - Build the binary"
 	@echo "  make run       - Run the server"
+	@echo "  make seed      - Run the SCM seeder"
 	@echo "  make test      - Run all tests"
 	@echo "  make vet       - Run go vet"
 	@echo "  make lint      - Run staticcheck"
@@ -22,6 +23,9 @@ build:
 
 run:
 	go run $(CMD_DIR)
+
+seed:
+	go run ./cmd/seeder
 
 test:
 	go test ./... -v -count=1

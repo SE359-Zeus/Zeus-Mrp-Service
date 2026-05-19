@@ -2,8 +2,9 @@ package seeder
 
 import (
 	"time"
-	"gorm.io/gorm"
 	"zeus-scm-service/internal/models"
+
+	"gorm.io/gorm"
 )
 
 func seedLookupTables(db *gorm.DB) {
@@ -17,7 +18,7 @@ func seedLookupTables(db *gorm.DB) {
 		db.FirstOrCreate(&models.PartMfgStatus{ID: int32(i + 1), Name: name, CreatedAt: time.Now(), UpdatedAt: time.Now()}, models.PartMfgStatus{Name: name})
 	}
 
-	poStates := []string{"Draft", "Approved", "In Transit", "Received"}
+	poStates := []string{"Draft", "Approved", "In Transit", "Received", "Partial", "Void"}
 	for i, name := range poStates {
 		db.FirstOrCreate(&models.PurchaseOrderState{ID: int32(i + 1), Name: name}, models.PurchaseOrderState{Name: name})
 	}

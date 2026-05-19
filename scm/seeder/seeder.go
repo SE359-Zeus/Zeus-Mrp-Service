@@ -24,6 +24,7 @@ func SeedAll(db *gorm.DB) error {
 	_ = typeMap
 	modelsList := seedProductModels(db, data.Installations, catMap)
 	seedInventory(db, catMap, suppliers)
+	seedProcurementData(db, suppliers, data)
 	seedProductsAndParts(db, modelsList, catMap)
 
 	log.Println("SCM Seeder finished successfully.")

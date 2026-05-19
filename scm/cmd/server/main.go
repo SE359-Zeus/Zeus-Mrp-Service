@@ -12,9 +12,9 @@ import (
 	sqliteRepo "zeus-scm-service/internal/repository/sqlite"
 	"zeus-scm-service/internal/service"
 
-	"github.com/google/uuid"
 	openapiui "github.com/PeterTakahashi/gin-openapi/openapiui"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 func main() {
@@ -126,7 +126,6 @@ func main() {
 		api.POST("/inventory/parts/:id/remove", inventoryH.RemovePart)
 		api.GET("/inventory/part-catalog", inventoryH.ListPartCatalog)
 		api.GET("/inventory/part-catalog/:id", inventoryH.GetPartCatalog)
-		api.GET("/inventory/users/:id", inventoryH.GetUser)
 	}
 
 	log.Printf("Zeus SCM service starting on :%s", cfg.ServerPort)

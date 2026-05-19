@@ -30,8 +30,6 @@ type IInventoryService interface {
 
 	GetPartCatalog(ctx context.Context, id uuid.UUID) (*models.PartCatalog, error)
 	ListPartCatalog(ctx context.Context, typeID *int32) ([]models.PartCatalog, error)
-
-	GetUser(ctx context.Context, id uuid.UUID) (*models.User, error)
 }
 
 type inventoryService struct {
@@ -172,12 +170,4 @@ func (s *inventoryService) ListPartCatalog(ctx context.Context, typeID *int32) (
 		return nil, err
 	}
 	return catalogs, nil
-}
-
-func (s *inventoryService) GetUser(ctx context.Context, id uuid.UUID) (*models.User, error) {
-	var u models.User
-	if err := s.db.WithContext(ctx).First(&u, "id = ?", id).Error; err != nil {
-		return nil, ErrNotFound
-	}
-	return &u, nil
 }
