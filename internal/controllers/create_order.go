@@ -1,6 +1,8 @@
 package controllers
 
-import "net/http"
+import (
+	"net/http"
+)
 
 // POST /api/v1/production/orders
 func (c *ProductionController) CreateOrder(w http.ResponseWriter, r *http.Request) {
