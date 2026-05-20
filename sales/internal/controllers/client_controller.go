@@ -60,6 +60,12 @@ func (controller *ClientController) HandleClientByID(w http.ResponseWriter, r *h
 		return
 	}
 	switch r.Method {
+	case http.MethodGet:
+		client, err := controller.svc.GetClient(r.Context(), clientID)
+		if err != nil {
+			panic(err)
+		}
+		writeJSON(w, http.StatusOK, client)
 	case http.MethodPatch:
 		var req models.UpdateClientRequest
 		if err := readJSON(r, &req); err != nil {

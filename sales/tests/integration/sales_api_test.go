@@ -83,6 +83,13 @@ func TestSalesAPI_ClientRegistryAndQueueStatus(t *testing.T) {
 
 	clientsResp := doJSONRequest(t, router, http.MethodGet, "/api/v1/sales/clients", nil)
 	require.Equal(t, http.StatusOK, clientsResp.Code)
+
+	var clientEnvelope responseEnvelope
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &clientEnvelope))
+	var created models.OrderResponse
+	require.NoError(t, json.Unmarshal(clientEnvelope.Data, &created))
+	clientResp := doJSONRequest(t, router, http.MethodGet, "/api/v1/sales/clients/"+created.Client.ID.String(), nil)
+	require.Equal(t, http.StatusOK, clientResp.Code)
 }
 
 func newIntegrationHarness(t *testing.T) (http.Handler, *sqlite.Repository, *valkey.Repository) {
