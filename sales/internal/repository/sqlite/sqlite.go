@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -10,122 +9,76 @@ import (
 	"zeus-sales-service/internal/models"
 	rootrepo "zeus-sales-service/internal/repository"
 
+	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
-	_ "modernc.org/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Repository struct {
-	db *sql.DB
+	db *gorm.DB
+}
+
+func Open(dsn string) (*Repository, error) {
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	repo := &Repository{db: db}
+	if err := repo.EnsureSchema(context.Background()); err != nil {
+		return nil, err
+	}
+	return repo, nil
+}
+
+func New(db *gorm.DB) *Repository {
+	return &Repository{db: db}
 }
 
 func (repo *Repository) Close() error {
 	if repo == nil || repo.db == nil {
 		return nil
 	}
-	return repo.db.Close()
-}
-
-func Open(dsn string) (*Repository, error) {
-	db, err := sql.Open("sqlite", dsn)
+	sqlDB, err := repo.db.DB()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	db.SetMaxOpenConns(1)
-	db.SetConnMaxLifetime(0)
-	repo := &Repository{db: db}
-	if err := repo.EnsureSchema(context.Background()); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return repo, nil
-}
-
-func New(db *sql.DB) *Repository {
-	return &Repository{db: db}
+	return sqlDB.Close()
 }
 
 func (repo *Repository) EnsureSchema(ctx context.Context) error {
-	statements := []string{
-		`PRAGMA foreign_keys = ON`,
-		`CREATE TABLE IF NOT EXISTS sales_order_status_lut (
-			id TEXT PRIMARY KEY,
-			code TEXT NOT NULL UNIQUE,
-			label TEXT NOT NULL,
-			sort_order INTEGER NOT NULL,
-			is_terminal INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS clients (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL UNIQUE,
-			tier TEXT NOT NULL CHECK (tier IN ('B2B', 'B2C')),
-			default_destination_address TEXT NOT NULL DEFAULT '',
-			total_lifetime_orders INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		)`,
-		`CREATE TABLE IF NOT EXISTS sales_orders (
-			id TEXT PRIMARY KEY,
-			client_id TEXT NOT NULL,
-			client_name TEXT NOT NULL,
-			destination_address TEXT NOT NULL DEFAULT '',
-			required_date TEXT NOT NULL,
-			status_id TEXT NOT NULL,
-			total_value REAL NOT NULL DEFAULT 0,
-			locked INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			FOREIGN KEY (client_id) REFERENCES clients(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-			FOREIGN KEY (status_id) REFERENCES sales_order_status_lut(id) ON UPDATE CASCADE ON DELETE RESTRICT
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_sales_orders_client_id ON sales_orders(client_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_sales_orders_status_id ON sales_orders(status_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_sales_orders_created_at ON sales_orders(created_at)`,
-		`CREATE TABLE IF NOT EXISTS sales_order_items (
-			id TEXT PRIMARY KEY,
-			order_id TEXT NOT NULL,
-			sku TEXT NOT NULL,
-			requested_qty INTEGER NOT NULL,
-			allocated_qty INTEGER NOT NULL DEFAULT 0,
-			unit_price REAL NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON UPDATE CASCADE ON DELETE CASCADE
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_sales_order_items_order_id ON sales_order_items(order_id)`,
-		`CREATE TABLE IF NOT EXISTS inventory_reservations (
-			id TEXT PRIMARY KEY,
-			order_id TEXT NOT NULL UNIQUE,
-			reserved_at TEXT NOT NULL,
-			FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON UPDATE CASCADE ON DELETE CASCADE
-		)`,
-		`CREATE TABLE IF NOT EXISTS inventory_reservation_items (
-			id TEXT PRIMARY KEY,
-			reservation_id TEXT NOT NULL,
-			sku TEXT NOT NULL,
-			quantity INTEGER NOT NULL,
-			FOREIGN KEY (reservation_id) REFERENCES inventory_reservations(id) ON UPDATE CASCADE ON DELETE CASCADE
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_inventory_reservation_items_reservation_id ON inventory_reservation_items(reservation_id)`,
-	}
-	for _, statement := range statements {
-		if _, err := repo.db.ExecContext(ctx, statement); err != nil {
-			return err
-		}
+	if err := repo.db.WithContext(ctx).AutoMigrate(
+		&clientRecord{},
+		&salesOrderStatusRecord{},
+		&salesOrderRecord{},
+		&salesOrderItemRecord{},
+		&inventoryReservationRecord{},
+		&inventoryReservationItemRecord{},
+	); err != nil {
+		return err
 	}
 	return repo.seedStatuses(ctx)
 }
 
 func (repo *Repository) seedStatuses(ctx context.Context) error {
-	for _, status := range defaultStatuses() {
-		_, err := repo.db.ExecContext(ctx, `INSERT OR IGNORE INTO sales_order_status_lut (id, code, label, sort_order, is_terminal, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			status.ID.String(), status.Code, status.Label, status.SortOrder, boolInt(status.IsTerminal), formatTime(time.Now().UTC()), formatTime(time.Now().UTC()))
-		if err != nil {
-			return err
-		}
+	statuses := defaultStatuses()
+	records := make([]salesOrderStatusRecord, 0, len(statuses))
+	now := time.Now().UTC()
+	for _, status := range statuses {
+		records = append(records, salesOrderStatusRecord{
+			ID:         status.ID.String(),
+			Code:       status.Code,
+			Label:      status.Label,
+			SortOrder:  status.SortOrder,
+			IsTerminal: status.IsTerminal,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		})
 	}
-	return nil
+	return repo.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoNothing: true,
+	}).Create(&records).Error
 }
 
 func defaultStatuses() []models.SalesOrderStatusLUT {
@@ -142,25 +95,6 @@ func salesStatusID(code string) uuid.UUID {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("sales-order-status:"+code))
 }
 
-func formatTime(value time.Time) string {
-	return value.UTC().Format(time.RFC3339Nano)
-}
-
-func parseTime(value string) (time.Time, error) {
-	return time.Parse(time.RFC3339Nano, value)
-}
-
-func boolInt(value bool) int {
-	if value {
-		return 1
-	}
-	return 0
-}
-
-func intBool(value int64) bool {
-	return value != 0
-}
-
 func (repo *Repository) CreateClient(ctx context.Context, client *models.Client) error {
 	if client.ID == uuid.Nil {
 		client.ID = uuid.New()
@@ -170,108 +104,85 @@ func (repo *Repository) CreateClient(ctx context.Context, client *models.Client)
 		client.CreatedAt = now
 	}
 	client.UpdatedAt = now
-	_, err := repo.db.ExecContext(ctx, `INSERT INTO clients (id, name, tier, default_destination_address, total_lifetime_orders, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		client.ID.String(), client.Name, string(client.Tier), client.DefaultDestinationAddress, client.TotalLifetimeOrders, formatTime(client.CreatedAt), formatTime(client.UpdatedAt))
-	return err
+	return repo.db.WithContext(ctx).Create(clientRecordFromModel(client)).Error
 }
 
 func (repo *Repository) GetClient(ctx context.Context, id uuid.UUID) (*models.Client, error) {
-	row := repo.db.QueryRowContext(ctx, `SELECT id, name, tier, default_destination_address, total_lifetime_orders, created_at, updated_at FROM clients WHERE id = ?`, id.String())
-	client, err := scanClient(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, rootrepo.ErrNotFound
-		}
-		return nil, err
+	var record clientRecord
+	if err := repo.db.WithContext(ctx).First(&record, "id = ?", id.String()).Error; err != nil {
+		return nil, mapRecordError(err)
 	}
-	return client, nil
+	model := record.toModel()
+	return &model, nil
 }
 
 func (repo *Repository) GetClientByName(ctx context.Context, name string) (*models.Client, error) {
-	row := repo.db.QueryRowContext(ctx, `SELECT id, name, tier, default_destination_address, total_lifetime_orders, created_at, updated_at FROM clients WHERE lower(name) = lower(?)`, strings.TrimSpace(name))
-	client, err := scanClient(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, rootrepo.ErrNotFound
-		}
-		return nil, err
+	var record clientRecord
+	if err := repo.db.WithContext(ctx).Where("lower(name) = lower(?)", strings.TrimSpace(name)).First(&record).Error; err != nil {
+		return nil, mapRecordError(err)
 	}
-	return client, nil
+	model := record.toModel()
+	return &model, nil
 }
 
 func (repo *Repository) ListClients(ctx context.Context) ([]models.Client, error) {
-	rows, err := repo.db.QueryContext(ctx, `SELECT id, name, tier, default_destination_address, total_lifetime_orders, created_at, updated_at FROM clients ORDER BY name ASC`)
-	if err != nil {
+	var records []clientRecord
+	if err := repo.db.WithContext(ctx).Order("name ASC").Find(&records).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	clients := make([]models.Client, 0)
-	for rows.Next() {
-		client, err := scanClient(rows)
-		if err != nil {
-			return nil, err
-		}
-		clients = append(clients, *client)
+	clients := make([]models.Client, 0, len(records))
+	for _, record := range records {
+		clients = append(clients, record.toModel())
 	}
-	return clients, rows.Err()
+	return clients, nil
 }
 
 func (repo *Repository) UpdateClient(ctx context.Context, client *models.Client) error {
 	client.UpdatedAt = time.Now().UTC()
-	result, err := repo.db.ExecContext(ctx, `UPDATE clients SET name = ?, tier = ?, default_destination_address = ?, total_lifetime_orders = ?, updated_at = ? WHERE id = ?`,
-		client.Name, string(client.Tier), client.DefaultDestinationAddress, client.TotalLifetimeOrders, formatTime(client.UpdatedAt), client.ID.String())
-	if err != nil {
-		return err
+	result := repo.db.WithContext(ctx).Model(&clientRecord{}).Where("id = ?", client.ID.String()).Updates(map[string]any{
+		"name":                        client.Name,
+		"tier":                        string(client.Tier),
+		"default_destination_address": client.DefaultDestinationAddress,
+		"total_lifetime_orders":       client.TotalLifetimeOrders,
+		"updated_at":                  client.UpdatedAt,
+	})
+	if result.Error != nil {
+		return result.Error
 	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
+	if result.RowsAffected == 0 {
 		return rootrepo.ErrNotFound
 	}
 	return nil
 }
 
 func (repo *Repository) ListOrderStatuses(ctx context.Context) ([]models.SalesOrderStatusLUT, error) {
-	rows, err := repo.db.QueryContext(ctx, `SELECT id, code, label, sort_order, is_terminal, created_at, updated_at FROM sales_order_status_lut ORDER BY sort_order ASC`)
-	if err != nil {
+	var records []salesOrderStatusRecord
+	if err := repo.db.WithContext(ctx).Order("sort_order ASC").Find(&records).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	statuses := make([]models.SalesOrderStatusLUT, 0)
-	for rows.Next() {
-		status, err := scanStatus(rows)
-		if err != nil {
-			return nil, err
-		}
-		statuses = append(statuses, *status)
+	statuses := make([]models.SalesOrderStatusLUT, 0, len(records))
+	for _, record := range records {
+		statuses = append(statuses, record.toModel())
 	}
-	return statuses, rows.Err()
+	return statuses, nil
 }
 
 func (repo *Repository) GetOrderStatusByID(ctx context.Context, id uuid.UUID) (*models.SalesOrderStatusLUT, error) {
-	row := repo.db.QueryRowContext(ctx, `SELECT id, code, label, sort_order, is_terminal, created_at, updated_at FROM sales_order_status_lut WHERE id = ?`, id.String())
-	status, err := scanStatus(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, rootrepo.ErrNotFound
-		}
-		return nil, err
+	var record salesOrderStatusRecord
+	if err := repo.db.WithContext(ctx).First(&record, "id = ?", id.String()).Error; err != nil {
+		return nil, mapRecordError(err)
 	}
-	return status, nil
+	model := record.toModel()
+	return &model, nil
 }
 
 func (repo *Repository) GetOrderStatusByCode(ctx context.Context, code string) (*models.SalesOrderStatusLUT, error) {
-	row := repo.db.QueryRowContext(ctx, `SELECT id, code, label, sort_order, is_terminal, created_at, updated_at FROM sales_order_status_lut WHERE code = ?`, strings.ToUpper(strings.TrimSpace(code)))
-	status, err := scanStatus(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, rootrepo.ErrNotFound
-		}
-		return nil, err
+	var record salesOrderStatusRecord
+	if err := repo.db.WithContext(ctx).Where("code = ?", strings.ToUpper(strings.TrimSpace(code))).First(&record).Error; err != nil {
+		return nil, mapRecordError(err)
 	}
-	return status, nil
+	model := record.toModel()
+	return &model, nil
 }
 
 func (repo *Repository) CreateOrder(ctx context.Context, order *models.SalesOrder) error {
@@ -283,69 +194,62 @@ func (repo *Repository) CreateOrder(ctx context.Context, order *models.SalesOrde
 		order.CreatedAt = now
 	}
 	order.UpdatedAt = now
-	_, err := repo.db.ExecContext(ctx, `INSERT INTO sales_orders (id, client_id, client_name, destination_address, required_date, status_id, total_value, locked, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		order.ID.String(), order.ClientID.String(), order.ClientName, order.DestinationAddress, formatTime(order.RequiredDate), order.StatusID.String(), order.TotalValue, boolInt(order.Locked), formatTime(order.CreatedAt), formatTime(order.UpdatedAt))
-	return err
+	return repo.db.WithContext(ctx).Create(orderRecordFromModel(order)).Error
 }
 
 func (repo *Repository) GetOrder(ctx context.Context, id uuid.UUID) (*models.SalesOrder, error) {
-	row := repo.db.QueryRowContext(ctx, orderSelectByIDQuery, id.String())
-	order, err := scanOrder(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, rootrepo.ErrNotFound
-		}
-		return nil, err
+	var record salesOrderRecord
+	if err := repo.db.WithContext(ctx).Preload("Status").First(&record, "id = ?", id.String()).Error; err != nil {
+		return nil, mapRecordError(err)
 	}
-	return order, nil
+	model := record.toModel()
+	return &model, nil
 }
 
 func (repo *Repository) ListOrders(ctx context.Context) ([]models.SalesOrder, error) {
-	rows, err := repo.db.QueryContext(ctx, orderSelectBaseQuery+` ORDER BY o.created_at ASC`)
-	if err != nil {
+	var records []salesOrderRecord
+	if err := repo.db.WithContext(ctx).Preload("Status").Order("created_at ASC").Find(&records).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	orders := make([]models.SalesOrder, 0)
-	for rows.Next() {
-		order, err := scanOrder(rows)
-		if err != nil {
-			return nil, err
-		}
-		orders = append(orders, *order)
+	orders := make([]models.SalesOrder, 0, len(records))
+	for _, record := range records {
+		orders = append(orders, record.toModel())
 	}
-	return orders, rows.Err()
+	return orders, nil
 }
 
 func (repo *Repository) ListPendingOrders(ctx context.Context) ([]models.SalesOrder, error) {
-	rows, err := repo.db.QueryContext(ctx, orderSelectBaseQuery+` WHERE s.code = ? ORDER BY o.created_at ASC`, models.SalesOrderStatusPendingCode)
+	pendingStatus, err := repo.GetOrderStatusByCode(ctx, models.SalesOrderStatusPendingCode)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	orders := make([]models.SalesOrder, 0)
-	for rows.Next() {
-		order, err := scanOrder(rows)
-		if err != nil {
-			return nil, err
-		}
-		orders = append(orders, *order)
+	var records []salesOrderRecord
+	if err := repo.db.WithContext(ctx).Preload("Status").Where("status_id = ?", pendingStatus.ID.String()).Order("created_at ASC").Find(&records).Error; err != nil {
+		return nil, err
 	}
-	return orders, rows.Err()
+	orders := make([]models.SalesOrder, 0, len(records))
+	for _, record := range records {
+		orders = append(orders, record.toModel())
+	}
+	return orders, nil
 }
 
 func (repo *Repository) UpdateOrder(ctx context.Context, order *models.SalesOrder) error {
 	order.UpdatedAt = time.Now().UTC()
-	result, err := repo.db.ExecContext(ctx, `UPDATE sales_orders SET client_id = ?, client_name = ?, destination_address = ?, required_date = ?, status_id = ?, total_value = ?, locked = ?, updated_at = ? WHERE id = ?`,
-		order.ClientID.String(), order.ClientName, order.DestinationAddress, formatTime(order.RequiredDate), order.StatusID.String(), order.TotalValue, boolInt(order.Locked), formatTime(order.UpdatedAt), order.ID.String())
-	if err != nil {
-		return err
+	result := repo.db.WithContext(ctx).Model(&salesOrderRecord{}).Where("id = ?", order.ID.String()).Updates(map[string]any{
+		"client_id":           order.ClientID.String(),
+		"client_name":         order.ClientName,
+		"destination_address": order.DestinationAddress,
+		"required_date":       order.RequiredDate,
+		"status_id":           order.StatusID.String(),
+		"total_value":         order.TotalValue,
+		"locked":              order.Locked,
+		"updated_at":          order.UpdatedAt,
+	})
+	if result.Error != nil {
+		return result.Error
 	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
+	if result.RowsAffected == 0 {
 		return rootrepo.ErrNotFound
 	}
 	return nil
@@ -360,51 +264,42 @@ func (repo *Repository) CreateOrderItem(ctx context.Context, item *models.SalesO
 		item.CreatedAt = now
 	}
 	item.UpdatedAt = now
-	_, err := repo.db.ExecContext(ctx, `INSERT INTO sales_order_items (id, order_id, sku, requested_qty, allocated_qty, unit_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.ID.String(), item.OrderID.String(), item.SKU, item.RequestedQty, item.AllocatedQty, item.UnitPrice, formatTime(item.CreatedAt), formatTime(item.UpdatedAt))
-	return err
+	return repo.db.WithContext(ctx).Create(orderItemRecordFromModel(item)).Error
 }
 
 func (repo *Repository) GetOrderItems(ctx context.Context, orderID uuid.UUID) ([]models.SalesOrderItem, error) {
-	rows, err := repo.db.QueryContext(ctx, `SELECT id, order_id, sku, requested_qty, allocated_qty, unit_price, created_at, updated_at FROM sales_order_items WHERE order_id = ? ORDER BY created_at ASC`, orderID.String())
-	if err != nil {
+	var records []salesOrderItemRecord
+	if err := repo.db.WithContext(ctx).Where("order_id = ?", orderID.String()).Order("created_at ASC").Find(&records).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	items := make([]models.SalesOrderItem, 0)
-	for rows.Next() {
-		item, err := scanOrderItem(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, *item)
+	items := make([]models.SalesOrderItem, 0, len(records))
+	for _, record := range records {
+		items = append(items, record.toModel())
 	}
-	return items, rows.Err()
+	return items, nil
 }
 
 func (repo *Repository) ReplaceOrderItems(ctx context.Context, orderID uuid.UUID, items []models.SalesOrderItem) error {
-	tx, err := repo.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sales_order_items WHERE order_id = ?`, orderID.String()); err != nil {
-		return err
-	}
-	for _, item := range items {
-		if item.ID == uuid.Nil {
-			item.ID = uuid.New()
-		}
-		if item.CreatedAt.IsZero() {
-			item.CreatedAt = time.Now().UTC()
-		}
-		item.UpdatedAt = item.CreatedAt
-		if _, err := tx.ExecContext(ctx, `INSERT INTO sales_order_items (id, order_id, sku, requested_qty, allocated_qty, unit_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			item.ID.String(), orderID.String(), item.SKU, item.RequestedQty, item.AllocatedQty, item.UnitPrice, formatTime(item.CreatedAt), formatTime(item.UpdatedAt)); err != nil {
+	return repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("order_id = ?", orderID.String()).Delete(&salesOrderItemRecord{}).Error; err != nil {
 			return err
 		}
-	}
-	return tx.Commit()
+		for _, item := range items {
+			if item.ID == uuid.Nil {
+				item.ID = uuid.New()
+			}
+			if item.CreatedAt.IsZero() {
+				item.CreatedAt = time.Now().UTC()
+			}
+			item.UpdatedAt = item.CreatedAt
+			record := orderItemRecordFromModel(&item)
+			record.OrderID = orderID.String()
+			if err := tx.Create(record).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (repo *Repository) CreateReservation(ctx context.Context, reservation *models.InventoryReservation) error {
@@ -414,193 +309,265 @@ func (repo *Repository) CreateReservation(ctx context.Context, reservation *mode
 	if reservation.ReservedAt.IsZero() {
 		reservation.ReservedAt = time.Now().UTC()
 	}
-	tx, err := repo.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO inventory_reservations (id, order_id, reserved_at) VALUES (?, ?, ?)`, reservation.ID.String(), reservation.OrderID.String(), formatTime(reservation.ReservedAt)); err != nil {
-		return err
-	}
-	for _, item := range reservation.Items {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO inventory_reservation_items (id, reservation_id, sku, quantity) VALUES (?, ?, ?, ?)`, uuid.New().String(), reservation.ID.String(), item.SKU, item.Quantity); err != nil {
+	return repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		record := reservationRecordFromModel(reservation)
+		if err := tx.Create(record).Error; err != nil {
 			return err
 		}
-	}
-	return tx.Commit()
+		for _, item := range reservation.Items {
+			reservationItem := inventoryReservationItemRecord{
+				ID:            uuid.New().String(),
+				ReservationID: reservation.ID.String(),
+				SKU:           item.SKU,
+				Quantity:      item.Quantity,
+			}
+			if err := tx.Create(&reservationItem).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (repo *Repository) GetReservation(ctx context.Context, orderID uuid.UUID) (*models.InventoryReservation, error) {
-	row := repo.db.QueryRowContext(ctx, `SELECT id, order_id, reserved_at FROM inventory_reservations WHERE order_id = ?`, orderID.String())
-	var reservationIDText, orderIDText, reservedAtText string
-	if err := row.Scan(&reservationIDText, &orderIDText, &reservedAtText); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, rootrepo.ErrNotFound
-		}
-		return nil, err
+	var record inventoryReservationRecord
+	if err := repo.db.WithContext(ctx).Preload("Items").Where("order_id = ?", orderID.String()).First(&record).Error; err != nil {
+		return nil, mapRecordError(err)
 	}
-	rows, err := repo.db.QueryContext(ctx, `SELECT sku, quantity FROM inventory_reservation_items WHERE reservation_id = ?`, reservationIDText)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := make([]models.ReservationItem, 0)
-	for rows.Next() {
-		var sku string
-		var quantity int
-		if err := rows.Scan(&sku, &quantity); err != nil {
-			return nil, err
-		}
-		items = append(items, models.ReservationItem{SKU: sku, Quantity: quantity})
-	}
-	reservedAt, err := parseTime(reservedAtText)
-	if err != nil {
-		return nil, err
-	}
-	return &models.InventoryReservation{ID: uuid.MustParse(reservationIDText), OrderID: uuid.MustParse(orderIDText), Items: items, ReservedAt: reservedAt}, rows.Err()
+	model := record.toModel()
+	return &model, nil
 }
 
 func (repo *Repository) DeleteReservation(ctx context.Context, orderID uuid.UUID) error {
-	tx, err := repo.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	row := tx.QueryRowContext(ctx, `SELECT id FROM inventory_reservations WHERE order_id = ?`, orderID.String())
-	var reservationID string
-	if err := row.Scan(&reservationID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return rootrepo.ErrNotFound
+	return repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var reservation inventoryReservationRecord
+		if err := tx.Where("order_id = ?", orderID.String()).First(&reservation).Error; err != nil {
+			return mapRecordError(err)
 		}
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_reservation_items WHERE reservation_id = ?`, reservationID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_reservations WHERE id = ?`, reservationID); err != nil {
-		return err
-	}
-	return tx.Commit()
+		if err := tx.Where("reservation_id = ?", reservation.ID).Delete(&inventoryReservationItemRecord{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&reservation).Error; err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
-const orderSelectBaseQuery = `SELECT
-	o.id, o.client_id, o.client_name, o.destination_address, o.required_date, o.status_id, o.total_value, o.locked, o.created_at, o.updated_at,
-	s.id, s.code, s.label, s.sort_order, s.is_terminal, s.created_at, s.updated_at
-FROM sales_orders o
-JOIN sales_order_status_lut s ON s.id = o.status_id`
-
-const orderSelectByIDQuery = orderSelectBaseQuery + ` WHERE o.id = ?`
-
-func scanClient(scanner interface{ Scan(dest ...any) error }) (*models.Client, error) {
-	var idText string
-	var name string
-	var tier string
-	var defaultDestinationAddress string
-	var totalLifetimeOrders int
-	var createdAtText string
-	var updatedAtText string
-	if err := scanner.Scan(&idText, &name, &tier, &defaultDestinationAddress, &totalLifetimeOrders, &createdAtText, &updatedAtText); err != nil {
-		return nil, err
+func mapRecordError(err error) error {
+	if err == nil {
+		return nil
 	}
-	createdAt, err := parseTime(createdAtText)
-	if err != nil {
-		return nil, err
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return rootrepo.ErrNotFound
 	}
-	updatedAt, err := parseTime(updatedAtText)
-	if err != nil {
-		return nil, err
-	}
-	return &models.Client{ID: uuid.MustParse(idText), Name: name, Tier: models.ClientTier(tier), DefaultDestinationAddress: defaultDestinationAddress, TotalLifetimeOrders: totalLifetimeOrders, CreatedAt: createdAt, UpdatedAt: updatedAt}, nil
+	return err
 }
 
-func scanStatus(scanner interface{ Scan(dest ...any) error }) (*models.SalesOrderStatusLUT, error) {
-	var idText string
-	var code string
-	var label string
-	var sortOrder int
-	var isTerminal int
-	var createdAtText string
-	var updatedAtText string
-	if err := scanner.Scan(&idText, &code, &label, &sortOrder, &isTerminal, &createdAtText, &updatedAtText); err != nil {
-		return nil, err
-	}
-	createdAt, err := parseTime(createdAtText)
-	if err != nil {
-		return nil, err
-	}
-	updatedAt, err := parseTime(updatedAtText)
-	if err != nil {
-		return nil, err
-	}
-	return &models.SalesOrderStatusLUT{ID: uuid.MustParse(idText), Code: code, Label: label, SortOrder: sortOrder, IsTerminal: intBool(int64(isTerminal)), CreatedAt: createdAt, UpdatedAt: updatedAt}, nil
+type clientRecord struct {
+	ID                        string    `gorm:"primaryKey;column:id"`
+	Name                      string    `gorm:"column:name;uniqueIndex"`
+	Tier                      string    `gorm:"column:tier"`
+	DefaultDestinationAddress string    `gorm:"column:default_destination_address"`
+	TotalLifetimeOrders       int       `gorm:"column:total_lifetime_orders"`
+	CreatedAt                 time.Time `gorm:"column:created_at"`
+	UpdatedAt                 time.Time `gorm:"column:updated_at"`
 }
 
-func scanOrder(scanner interface{ Scan(dest ...any) error }) (*models.SalesOrder, error) {
-	var orderIDText string
-	var clientIDText string
-	var clientName string
-	var destinationAddress string
-	var requiredDateText string
-	var statusIDText string
-	var totalValue float64
-	var lockedInt int
-	var createdAtText string
-	var updatedAtText string
-	var statusIDScan string
-	var statusCode string
-	var statusLabel string
-	var statusSortOrder int
-	var statusTerminalInt int
-	var statusCreatedAtText string
-	var statusUpdatedAtText string
-	if err := scanner.Scan(&orderIDText, &clientIDText, &clientName, &destinationAddress, &requiredDateText, &statusIDText, &totalValue, &lockedInt, &createdAtText, &updatedAtText, &statusIDScan, &statusCode, &statusLabel, &statusSortOrder, &statusTerminalInt, &statusCreatedAtText, &statusUpdatedAtText); err != nil {
-		return nil, err
+func (clientRecord) TableName() string { return "clients" }
+
+func clientRecordFromModel(client *models.Client) *clientRecord {
+	return &clientRecord{
+		ID:                        client.ID.String(),
+		Name:                      client.Name,
+		Tier:                      string(client.Tier),
+		DefaultDestinationAddress: client.DefaultDestinationAddress,
+		TotalLifetimeOrders:       client.TotalLifetimeOrders,
+		CreatedAt:                 client.CreatedAt,
+		UpdatedAt:                 client.UpdatedAt,
 	}
-	requiredDate, err := parseTime(requiredDateText)
-	if err != nil {
-		return nil, err
-	}
-	createdAt, err := parseTime(createdAtText)
-	if err != nil {
-		return nil, err
-	}
-	updatedAt, err := parseTime(updatedAtText)
-	if err != nil {
-		return nil, err
-	}
-	statusCreatedAt, err := parseTime(statusCreatedAtText)
-	if err != nil {
-		return nil, err
-	}
-	statusUpdatedAt, err := parseTime(statusUpdatedAtText)
-	if err != nil {
-		return nil, err
-	}
-	status := &models.SalesOrderStatusLUT{ID: uuid.MustParse(statusIDScan), Code: statusCode, Label: statusLabel, SortOrder: statusSortOrder, IsTerminal: intBool(int64(statusTerminalInt)), CreatedAt: statusCreatedAt, UpdatedAt: statusUpdatedAt}
-	return &models.SalesOrder{ID: uuid.MustParse(orderIDText), ClientID: uuid.MustParse(clientIDText), ClientName: clientName, DestinationAddress: destinationAddress, RequiredDate: requiredDate, StatusID: uuid.MustParse(statusIDText), Status: status, TotalValue: totalValue, Locked: lockedInt != 0, CreatedAt: createdAt, UpdatedAt: updatedAt}, nil
 }
 
-func scanOrderItem(scanner interface{ Scan(dest ...any) error }) (*models.SalesOrderItem, error) {
-	var idText string
-	var orderIDText string
-	var sku string
-	var requestedQty int
-	var allocatedQty int
-	var unitPrice float64
-	var createdAtText string
-	var updatedAtText string
-	if err := scanner.Scan(&idText, &orderIDText, &sku, &requestedQty, &allocatedQty, &unitPrice, &createdAtText, &updatedAtText); err != nil {
-		return nil, err
+func (record clientRecord) toModel() models.Client {
+	parsedID, _ := uuid.Parse(record.ID)
+	return models.Client{
+		ID:                        parsedID,
+		Name:                      record.Name,
+		Tier:                      models.ClientTier(record.Tier),
+		DefaultDestinationAddress: record.DefaultDestinationAddress,
+		TotalLifetimeOrders:       record.TotalLifetimeOrders,
+		CreatedAt:                 record.CreatedAt,
+		UpdatedAt:                 record.UpdatedAt,
 	}
-	createdAt, err := parseTime(createdAtText)
-	if err != nil {
-		return nil, err
-	}
-	updatedAt, err := parseTime(updatedAtText)
-	if err != nil {
-		return nil, err
-	}
-	return &models.SalesOrderItem{ID: uuid.MustParse(idText), OrderID: uuid.MustParse(orderIDText), SKU: sku, RequestedQty: requestedQty, AllocatedQty: allocatedQty, UnitPrice: unitPrice, CreatedAt: createdAt, UpdatedAt: updatedAt}, nil
 }
 
-var _ rootrepo.SQLiteRepository = (*Repository)(nil)
+type salesOrderStatusRecord struct {
+	ID         string    `gorm:"primaryKey;column:id"`
+	Code       string    `gorm:"column:code;uniqueIndex"`
+	Label      string    `gorm:"column:label"`
+	SortOrder  int       `gorm:"column:sort_order"`
+	IsTerminal bool      `gorm:"column:is_terminal"`
+	CreatedAt  time.Time `gorm:"column:created_at"`
+	UpdatedAt  time.Time `gorm:"column:updated_at"`
+}
+
+func (salesOrderStatusRecord) TableName() string { return "sales_order_status_lut" }
+
+func (record salesOrderStatusRecord) toModel() models.SalesOrderStatusLUT {
+	parsedID, _ := uuid.Parse(record.ID)
+	return models.SalesOrderStatusLUT{
+		ID:         parsedID,
+		Code:       record.Code,
+		Label:      record.Label,
+		SortOrder:  record.SortOrder,
+		IsTerminal: record.IsTerminal,
+		CreatedAt:  record.CreatedAt,
+		UpdatedAt:  record.UpdatedAt,
+	}
+}
+
+type salesOrderRecord struct {
+	ID                 string                      `gorm:"primaryKey;column:id"`
+	ClientID           string                      `gorm:"column:client_id;index"`
+	ClientName         string                      `gorm:"column:client_name"`
+	DestinationAddress string                      `gorm:"column:destination_address"`
+	RequiredDate       time.Time                   `gorm:"column:required_date"`
+	StatusID           string                      `gorm:"column:status_id;index"`
+	Status             salesOrderStatusRecord      `gorm:"foreignKey:StatusID;references:ID"`
+	TotalValue         float64                     `gorm:"column:total_value"`
+	Locked             bool                        `gorm:"column:locked"`
+	CreatedAt          time.Time                   `gorm:"column:created_at"`
+	UpdatedAt          time.Time                   `gorm:"column:updated_at"`
+	Items              []salesOrderItemRecord      `gorm:"foreignKey:OrderID;references:ID"`
+	Reservation        *inventoryReservationRecord `gorm:"foreignKey:OrderID;references:ID"`
+}
+
+func (salesOrderRecord) TableName() string { return "sales_orders" }
+
+func orderRecordFromModel(order *models.SalesOrder) *salesOrderRecord {
+	record := &salesOrderRecord{
+		ID:                 order.ID.String(),
+		ClientID:           order.ClientID.String(),
+		ClientName:         order.ClientName,
+		DestinationAddress: order.DestinationAddress,
+		RequiredDate:       order.RequiredDate,
+		StatusID:           order.StatusID.String(),
+		TotalValue:         order.TotalValue,
+		Locked:             order.Locked,
+		CreatedAt:          order.CreatedAt,
+		UpdatedAt:          order.UpdatedAt,
+	}
+	if order.Status != nil {
+		record.Status = salesOrderStatusRecord{
+			ID:         order.Status.ID.String(),
+			Code:       order.Status.Code,
+			Label:      order.Status.Label,
+			SortOrder:  order.Status.SortOrder,
+			IsTerminal: order.Status.IsTerminal,
+			CreatedAt:  order.Status.CreatedAt,
+			UpdatedAt:  order.Status.UpdatedAt,
+		}
+	}
+	return record
+}
+
+func (record salesOrderRecord) toModel() models.SalesOrder {
+	parsedID, _ := uuid.Parse(record.ID)
+	clientID, _ := uuid.Parse(record.ClientID)
+	statusID, _ := uuid.Parse(record.StatusID)
+	var status *models.SalesOrderStatusLUT
+	if record.Status.ID != "" {
+		statusModel := record.Status.toModel()
+		status = &statusModel
+	}
+	return models.SalesOrder{
+		ID:                 parsedID,
+		ClientID:           clientID,
+		ClientName:         record.ClientName,
+		DestinationAddress: record.DestinationAddress,
+		RequiredDate:       record.RequiredDate,
+		StatusID:           statusID,
+		Status:             status,
+		TotalValue:         record.TotalValue,
+		Locked:             record.Locked,
+		CreatedAt:          record.CreatedAt,
+		UpdatedAt:          record.UpdatedAt,
+	}
+}
+
+type salesOrderItemRecord struct {
+	ID           string    `gorm:"primaryKey;column:id"`
+	OrderID      string    `gorm:"column:order_id;index"`
+	SKU          string    `gorm:"column:sku;index"`
+	RequestedQty int       `gorm:"column:requested_qty"`
+	AllocatedQty int       `gorm:"column:allocated_qty"`
+	UnitPrice    float64   `gorm:"column:unit_price"`
+	CreatedAt    time.Time `gorm:"column:created_at"`
+	UpdatedAt    time.Time `gorm:"column:updated_at"`
+}
+
+func (salesOrderItemRecord) TableName() string { return "sales_order_items" }
+
+func orderItemRecordFromModel(item *models.SalesOrderItem) *salesOrderItemRecord {
+	return &salesOrderItemRecord{
+		ID:           item.ID.String(),
+		OrderID:      item.OrderID.String(),
+		SKU:          item.SKU,
+		RequestedQty: item.RequestedQty,
+		AllocatedQty: item.AllocatedQty,
+		UnitPrice:    item.UnitPrice,
+		CreatedAt:    item.CreatedAt,
+		UpdatedAt:    item.UpdatedAt,
+	}
+}
+
+func (record salesOrderItemRecord) toModel() models.SalesOrderItem {
+	parsedID, _ := uuid.Parse(record.ID)
+	orderID, _ := uuid.Parse(record.OrderID)
+	return models.SalesOrderItem{
+		ID:           parsedID,
+		OrderID:      orderID,
+		SKU:          record.SKU,
+		RequestedQty: record.RequestedQty,
+		AllocatedQty: record.AllocatedQty,
+		UnitPrice:    record.UnitPrice,
+		CreatedAt:    record.CreatedAt,
+		UpdatedAt:    record.UpdatedAt,
+	}
+}
+
+type inventoryReservationRecord struct {
+	ID         string                           `gorm:"primaryKey;column:id"`
+	OrderID    string                           `gorm:"column:order_id;uniqueIndex"`
+	ReservedAt time.Time                        `gorm:"column:reserved_at"`
+	Items      []inventoryReservationItemRecord `gorm:"foreignKey:ReservationID;references:ID"`
+}
+
+func (inventoryReservationRecord) TableName() string { return "inventory_reservations" }
+
+func reservationRecordFromModel(reservation *models.InventoryReservation) *inventoryReservationRecord {
+	return &inventoryReservationRecord{
+		ID:         reservation.ID.String(),
+		OrderID:    reservation.OrderID.String(),
+		ReservedAt: reservation.ReservedAt,
+	}
+}
+
+func (record inventoryReservationRecord) toModel() models.InventoryReservation {
+	parsedID, _ := uuid.Parse(record.ID)
+	orderID, _ := uuid.Parse(record.OrderID)
+	items := make([]models.ReservationItem, 0, len(record.Items))
+	for _, item := range record.Items {
+		items = append(items, models.ReservationItem{SKU: item.SKU, Quantity: item.Quantity})
+	}
+	return models.InventoryReservation{ID: parsedID, OrderID: orderID, Items: items, ReservedAt: record.ReservedAt}
+}
+
+type inventoryReservationItemRecord struct {
+	ID            string `gorm:"primaryKey;column:id"`
+	ReservationID string `gorm:"column:reservation_id;index"`
+	SKU           string `gorm:"column:sku"`
+	Quantity      int    `gorm:"column:quantity"`
+}
+
+func (inventoryReservationItemRecord) TableName() string { return "inventory_reservation_items" }
