@@ -14,9 +14,9 @@ func NewMux(services *service.Services) http.Handler {
 	fulfillmentController := NewFulfillmentController(services.Fulfillment)
 
 	mux.HandleFunc("/api/v1/sales/orders", orderController.HandleOrders)
-	mux.HandleFunc("/api/v1/sales/orders/", orderController.HandleOrderByID)
+	mux.HandleFunc("/api/v1/sales/orders/:id", orderController.HandleOrderByID)
 	mux.HandleFunc("/api/v1/sales/clients", clientController.HandleClients)
-	mux.HandleFunc("/api/v1/sales/clients/", clientController.HandleClientByID)
+	mux.HandleFunc("/api/v1/sales/clients/:id", clientController.HandleClientByID)
 	mux.HandleFunc("/api/v1/sales/fulfillment/process", fulfillmentController.HandleProcessQueue)
 	mux.HandleFunc("/api/v1/sales/fulfillment/queue", fulfillmentController.HandleQueueStatus)
 	return middlewares.ErrorHandler(mux)
