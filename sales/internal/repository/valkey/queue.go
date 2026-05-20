@@ -14,7 +14,7 @@ func (repo *Repository) EnqueueOrder(ctx context.Context, entry models.Allocatio
 	if err != nil {
 		return err
 	}
-	score := float64(entry.PriorityScore)*1e16 + float64(entry.IngestedAt.UnixMicro())
+	score := float64(entry.IngestedAt.UnixMicro())
 	member := entry.OrderID.String()
 	pipeline := repo.client.TxPipeline()
 	pipeline.HSet(ctx, repo.payloadKey, member, payload)

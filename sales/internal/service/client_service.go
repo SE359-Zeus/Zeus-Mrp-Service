@@ -14,11 +14,12 @@ import (
 )
 
 type ClientService struct {
-	repo repository.DbRepository
+	repo  repository.DbRepository
+	cache repository.CacheRepository
 }
 
-func NewClientService(repo repository.DbRepository) *ClientService {
-	return &ClientService{repo: repo}
+func NewClientService(repo repository.DbRepository, cache repository.CacheRepository) *ClientService {
+	return &ClientService{repo: repo, cache: cache}
 }
 
 func (svc *ClientService) ResolveOrCreateClient(ctx context.Context, name string, destination string, tier models.ClientTier) (*models.Client, error) {
@@ -93,6 +94,11 @@ func (svc *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, req mo
 	}
 	if err := svc.repo.UpdateClient(ctx, client); err != nil {
 		return nil, err
+	}
+	if svc.cache != nil {
+		if err := svc.cache.ClearQueue(ctx); err != nil {
+			return nil, err
+		}
 	}
 	return client, nil
 }

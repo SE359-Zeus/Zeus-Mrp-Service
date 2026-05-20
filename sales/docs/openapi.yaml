@@ -1,0 +1,519 @@
+openapi: 3.0.3
+info:
+  title: Zeus Sales API
+  version: 1.0.0
+  description: >-
+    OpenAPI specification for the Sales module. Responses use a unified
+    envelope: {message, statusCode, metadata, data}.
+servers:
+  - url: http://localhost:8080/api/v1/sales
+security:
+  - ApiKeyAuth: []
+paths:
+  /orders:
+    get:
+      summary: List orders
+      description: Returns a list of sales orders. Supports optional filtering by states and date.
+      parameters:
+        - in: query
+          name: states
+          schema:
+            type: string
+          description: Comma-separated order state codes to filter (e.g. PENDING,PROCESSING)
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date
+          description: Filter by required date (YYYY-MM-DD)
+      responses:
+        '200':
+          description: List of orders returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+              examples:
+                success:
+                  value:
+                    message: "List orders successful"
+                    statusCode: 200
+                    data:
+                      total: 1
+                      orders:
+                        - id: "00000000-0000-0000-0000-000000000000"
+                          clientId: "11111111-1111-1111-1111-111111111111"
+                          clientName: "Orbit Co"
+                          requiredDate: "2026-06-01T00:00:00Z"
+                          statusCode: "PENDING"
+                          totalValue: 100.0
+        '400':
+          description: Bad request (invalid filters)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    post:
+      summary: Create a new sales order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+              examples:
+                created:
+                  value:
+                    message: "Order created"
+                    statusCode: 201
+                    data:
+                      order:
+                        id: "00000000-0000-0000-0000-000000000000"
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /orders/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get order by id
+      responses:
+        '200':
+          description: Order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+              examples:
+                order:
+                  value:
+                    message: "Order retrieved"
+                    statusCode: 200
+                    data:
+                      order:
+                        id: "00000000-0000-0000-0000-000000000000"
+                        clientId: "11111111-1111-1111-1111-111111111111"
+                        clientName: "Orbit Co"
+                        requiredDate: "2026-06-01T00:00:00Z"
+                        statusCode: "PENDING"
+                        totalValue: 100.0
+                      items:
+                        - id: "22222222-2222-2222-2222-222222222222"
+                          sku: "SKU-100"
+                          requestedQty: 3
+                          allocatedQty: 0
+                          unitPrice: 15.0
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    patch:
+      summary: Update an order (only when pending)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderRequest'
+      responses:
+        '200':
+          description: Order updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Conflict (order locked or already processing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      summary: Cancel a pending order
+      responses:
+        '200':
+          description: Order cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+              examples:
+                cancelled:
+                  value:
+                    message: "order cancelled"
+                    statusCode: 200
+                    data: {}
+        '409':
+          description: Conflict (cannot cancel once processing started)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    post:
+      summary: Reserve inventory for an order (triggers MRP)
+      description: Triggers the MRP reservation process for the order items.
+      responses:
+        '200':
+          description: Reservation triggered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+              examples:
+                triggered:
+                  value:
+                    message: "reserve triggered"
+                    statusCode: 200
+                    data: {}
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: MRP or server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /clients:
+    get:
+      summary: List clients
+      parameters:
+        - in: query
+          name: tiers
+          schema:
+            type: string
+          description: Comma-separated client tiers to filter
+      responses:
+        '200':
+          description: Clients listed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+              examples:
+                clients:
+                  value:
+                    message: "Clients listed"
+                    statusCode: 200
+                    data:
+                      total: 1
+                      clients:
+                        - id: "11111111-1111-1111-1111-111111111111"
+                          name: "Orbit Co"
+                          tier: "B2C"
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /clients/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get client by id
+      responses:
+        '200':
+          description: Client returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '404':
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    patch:
+      summary: Update client profile (name/tier/image)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateClientRequest'
+      responses:
+        '200':
+          description: Client updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /fulfillment/process:
+    post:
+      summary: Start fulfillment queue processing
+      responses:
+        '200':
+          description: Processing started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /fulfillment/queue:
+    get:
+      summary: Get current fulfillment queue status
+      responses:
+        '200':
+          description: Queue status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /metrics:
+    get:
+      summary: Sales metrics (pending/processing/completed)
+      responses:
+        '200':
+          description: Metrics returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        message:
+          type: string
+        statusCode:
+          type: integer
+        metadata:
+          type: object
+        data:
+          type: object
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+      description: Error response wrapped in the envelope
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        clientId:
+          type: string
+        clientName:
+          type: string
+        requiredDate:
+          type: string
+          format: date-time
+        statusCode:
+          type: string
+        totalValue:
+          type: number
+          format: float
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    OrderItem:
+      type: object
+      properties:
+        id:
+          type: string
+        sku:
+          type: string
+        requestedQty:
+          type: integer
+        allocatedQty:
+          type: integer
+        unitPrice:
+          type: number
+          format: float
+    OrdersListData:
+      type: object
+      properties:
+        total:
+          type: integer
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+    OrderDetailData:
+      type: object
+      properties:
+        order:
+          $ref: '#/components/schemas/Order'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+    Client:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tier:
+          type: string
+        imageUrl:
+          type: string
+        totalLifetimeOrders:
+          type: integer
+    ClientsListData:
+      type: object
+      properties:
+        total:
+          type: integer
+        clients:
+          type: array
+          items:
+            $ref: '#/components/schemas/Client'
+    UpdateClientRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        tier:
+          type: string
+        imageUrl:
+          type: string
+    CreateOrderRequest:
+      type: object
+      required: [clientName, requiredDate, items]
+      properties:
+        clientName:
+          type: string
+        destinationAddress:
+          type: string
+        clientTier:
+          type: string
+        requiredDate:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              sku:
+                type: string
+              requestedQty:
+                type: integer
+              unitPrice:
+                type: number
+                format: float
+    UpdateOrderRequest:
+      type: object
+      properties:
+        destinationAddress:
+          type: string
+        requiredDate:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+    MetricsData:
+      type: object
+      properties:
+        total_pending:
+          type: integer
+        active_processing_value:
+          type: number
+          format: float
+        completed_24h:
+          type: integer
+
+*** End Patch

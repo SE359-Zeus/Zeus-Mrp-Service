@@ -14,6 +14,13 @@ var (
 	ErrInternal   = errors.New("internal error")
 )
 
+type ResponseEnvelope struct {
+	Message    string `json:"message"`
+	StatusCode int    `json:"statusCode"`
+	Metadata   any    `json:"metadata"`
+	Data       any    `json:"data"`
+}
+
 type HTTPError struct {
 	Status  int    `json:"-"`
 	Code    string `json:"code"`
@@ -55,10 +62,11 @@ func ErrorHandler(next http.Handler) http.Handler {
 				httpError := normalizeError(recovered)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(httpError.Status)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"error":  httpError.Message,
-					"code":   httpError.Code,
-					"status": httpError.Status,
+				_ = json.NewEncoder(w).Encode(ResponseEnvelope{
+					Message:    httpError.Message,
+					StatusCode: httpError.Status,
+					Metadata:   map[string]any{"code": httpError.Code},
+					Data:       nil,
 				})
 			}
 		}()

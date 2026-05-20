@@ -1,11 +1,15 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
+	"zeus-sales-service/internal/config"
 	"zeus-sales-service/internal/middlewares"
 	"zeus-sales-service/internal/models"
 	"zeus-sales-service/internal/repository"
@@ -15,11 +19,12 @@ import (
 
 type OrderService struct {
 	repo    repository.DbRepository
+	cache   repository.CacheRepository
 	clients *ClientService
 }
 
-func NewOrderService(repo repository.DbRepository, clients *ClientService) *OrderService {
-	return &OrderService{repo: repo, clients: clients}
+func NewOrderService(repo repository.DbRepository, cache repository.CacheRepository, clients *ClientService) *OrderService {
+	return &OrderService{repo: repo, cache: cache, clients: clients}
 }
 
 func (svc *OrderService) CreateOrder(ctx context.Context, req models.CreateOrderRequest) (*models.OrderResponse, error) {
@@ -98,6 +103,17 @@ func (svc *OrderService) CreateOrder(ctx context.Context, req models.CreateOrder
 	if err := svc.clients.repo.UpdateClient(ctx, client); err != nil {
 		return nil, err
 	}
+	if svc.cache != nil {
+		if err := svc.cache.EnqueueOrder(ctx, models.AllocationQueueEntry{
+			OrderID:      order.ID,
+			ClientID:     client.ID,
+			ClientTier:   client.Tier,
+			RequiredDate: order.RequiredDate,
+			IngestedAt:   order.CreatedAt,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	return svc.buildResponse(ctx, order, items)
 }
 
@@ -131,6 +147,85 @@ func (svc *OrderService) ListOrders(ctx context.Context) ([]models.OrderResponse
 		responses = append(responses, models.OrderResponse{Order: order, Client: *client, Items: items})
 	}
 	return responses, nil
+}
+
+func (svc *OrderService) ListOrdersWithFilters(ctx context.Context, states []string, date *time.Time) ([]models.OrderResponse, error) {
+	orders, err := svc.repo.ListOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// normalize state codes set
+	stateSet := map[string]struct{}{}
+	for _, s := range states {
+		stateSet[strings.ToUpper(strings.TrimSpace(s))] = struct{}{}
+	}
+	responses := make([]models.OrderResponse, 0, len(orders))
+	for _, order := range orders {
+		// filter by date if provided (compare date part of RequiredDate)
+		if date != nil {
+			y1, m1, d1 := order.RequiredDate.Date()
+			y2, m2, d2 := date.Date()
+			if y1 != y2 || m1 != m2 || d1 != d2 {
+				continue
+			}
+		}
+		// load status code for filtering
+		includeByState := true
+		if len(stateSet) > 0 {
+			status, err := svc.repo.GetOrderStatusByID(ctx, order.StatusID)
+			if err != nil {
+				continue
+			}
+			if _, ok := stateSet[strings.ToUpper(status.Code)]; !ok {
+				includeByState = false
+			}
+		}
+		if !includeByState {
+			continue
+		}
+		items, _ := svc.repo.GetOrderItems(ctx, order.ID)
+		client, _ := svc.repo.GetClient(ctx, order.ClientID)
+		if client == nil {
+			client = &models.Client{}
+		}
+		responses = append(responses, models.OrderResponse{Order: order, Client: *client, Items: items})
+	}
+	return responses, nil
+}
+
+type MetricsResponse struct {
+	TotalPending          int     `json:"total_pending"`
+	ActiveProcessingValue float64 `json:"active_processing_value"`
+	CompletedLast24Hours  int     `json:"completed_24h"`
+}
+
+func (svc *OrderService) GetMetrics(ctx context.Context) (*MetricsResponse, error) {
+	orders, err := svc.repo.ListOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var totalPending int
+	var activeProcessingValue float64
+	var completed24 int
+	now := time.Now().UTC()
+	cutoff := now.Add(-24 * time.Hour)
+	for _, order := range orders {
+		status, err := svc.repo.GetOrderStatusByID(ctx, order.StatusID)
+		if err != nil || status == nil {
+			continue
+		}
+		switch status.Code {
+		case models.SalesOrderStatusPendingCode:
+			totalPending++
+		case models.SalesOrderStatusProcessingCode:
+			activeProcessingValue += order.TotalValue
+		case models.SalesOrderStatusCompletedCode:
+			if order.UpdatedAt.After(cutoff) {
+				completed24++
+			}
+		}
+	}
+	return &MetricsResponse{TotalPending: totalPending, ActiveProcessingValue: activeProcessingValue, CompletedLast24Hours: completed24}, nil
 }
 
 func (svc *OrderService) ListPendingOrders(ctx context.Context) ([]models.OrderResponse, error) {
@@ -205,6 +300,11 @@ func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, req mode
 	if err := svc.repo.UpdateOrder(ctx, order); err != nil {
 		return nil, err
 	}
+	if svc.cache != nil {
+		if err := svc.cache.ClearQueue(ctx); err != nil {
+			return nil, err
+		}
+	}
 	items, _ := svc.repo.GetOrderItems(ctx, order.ID)
 	client, _ := svc.repo.GetClient(ctx, order.ClientID)
 	if client == nil {
@@ -231,7 +331,62 @@ func (svc *OrderService) CancelOrder(ctx context.Context, id uuid.UUID) error {
 	order.StatusID = cancelledStatus.ID
 	order.Status = cancelledStatus
 	order.UpdatedAt = time.Now().UTC()
-	return svc.repo.UpdateOrder(ctx, order)
+	if err := svc.repo.UpdateOrder(ctx, order); err != nil {
+		return err
+	}
+	if svc.cache != nil {
+		if err := svc.cache.ClearQueue(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReserveInventory sends the order items to the MRP service to reserve inventory and trigger MRP processing.
+func (svc *OrderService) ReserveInventory(ctx context.Context, id uuid.UUID) error {
+	if id == uuid.Nil {
+		return fmt.Errorf("%w: order id is required", middlewares.ErrValidation)
+	}
+	order, err := svc.repo.GetOrder(ctx, id)
+	if err != nil {
+		return err
+	}
+	items, err := svc.repo.GetOrderItems(ctx, id)
+	if err != nil {
+		return err
+	}
+	// build request payload
+	type itemPayload struct {
+		SKU string `json:"sku"`
+		Qty int    `json:"qty"`
+	}
+	payload := struct {
+		OrderID string        `json:"order_id"`
+		Items   []itemPayload `json:"items"`
+	}{
+		OrderID: order.ID.String(),
+		Items:   []itemPayload{},
+	}
+	for _, it := range items {
+		payload.Items = append(payload.Items, itemPayload{SKU: it.SKU, Qty: it.RequestedQty})
+	}
+	b, _ := json.Marshal(payload)
+	mrpURL := config.GetMRPURL()
+	endpoint := fmt.Sprintf("%s/api/v1/mrp/reserve", mrpURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("mrp service returned status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func (svc *OrderService) buildResponse(ctx context.Context, order *models.SalesOrder, items []models.SalesOrderItem) (*models.OrderResponse, error) {

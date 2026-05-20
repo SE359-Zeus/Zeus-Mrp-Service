@@ -9,8 +9,8 @@ type Services struct {
 }
 
 func NewServices(sqliteRepo repository.DbRepository, valkeyRepo repository.CacheRepository) *Services {
-	clients := NewClientService(sqliteRepo)
-	orders := NewOrderService(sqliteRepo, clients)
+	clients := NewClientService(sqliteRepo, valkeyRepo)
+	orders := NewOrderService(sqliteRepo, valkeyRepo, clients)
 	fulfillment := NewFulfillmentService(sqliteRepo, valkeyRepo)
 	return &Services{
 		Clients:     clients,

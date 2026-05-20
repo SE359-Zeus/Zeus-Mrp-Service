@@ -76,6 +76,7 @@ func TestOrderService_CreateOrder_SetsDerivedFields(t *testing.T) {
 	db.On("UpdateClient", mock.Anything, mock.MatchedBy(func(client *models.Client) bool {
 		return client.Name == "Orbit Co" && client.TotalLifetimeOrders == 1
 	})).Return(nil)
+	cache.On("EnqueueOrder", mock.Anything, mock.AnythingOfType("models.AllocationQueueEntry")).Return(nil)
 	db.On("GetClient", mock.Anything, mock.Anything).Return(&models.Client{
 		ID:                        clientID,
 		Name:                      "Orbit Co",
@@ -102,6 +103,7 @@ func TestOrderService_CreateOrder_SetsDerivedFields(t *testing.T) {
 	assert.InDelta(t, 61.0, response.Order.TotalValue, 0.0001)
 	assert.Equal(t, response.Client.DefaultDestinationAddress, response.Order.DestinationAddress)
 	db.AssertExpectations(t)
+	cache.AssertExpectations(t)
 }
 
 func TestOrderService_UpdateAndCancel_RespectLockAndStatus(t *testing.T) {
@@ -123,6 +125,7 @@ func TestOrderService_UpdateAndCancel_RespectLockAndStatus(t *testing.T) {
 	}
 
 	db.On("GetOrder", mock.Anything, orderID).Return(lockedOrder, nil).Twice()
+	cache.On("ClearQueue", mock.Anything).Return(nil).Maybe()
 
 	updated, err := svc.UpdateOrder(context.Background(), orderID, models.UpdateOrderRequest{DestinationAddress: ptrString("New Bay")})
 	assert.Error(t, err)

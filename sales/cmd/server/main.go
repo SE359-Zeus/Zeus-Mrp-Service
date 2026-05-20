@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -12,7 +13,10 @@ import (
 	"zeus-sales-service/internal/repository/valkey"
 	"zeus-sales-service/internal/service"
 
+	openapiui "github.com/PeterTakahashi/gin-openapi/openapiui"
+	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -32,8 +36,34 @@ func main() {
 	services := service.NewServices(sqliteRepo, valkeyRepo)
 	router := middlewares.ErrorHandler(controllers.NewMux(services))
 
+	// Create a small gin router to serve OpenAPI UI (dark theme) similar to other services
+	docsRouter := gin.New()
+	docsRouter.GET("/docs/*any", openapiui.WrapHandler(openapiui.Config{
+		Title: "Zeus Sales API",
+		SpecProvider: func() ([]byte, error) {
+			data, err := os.ReadFile("docs/openapi.yaml")
+			if err != nil {
+				return nil, err
+			}
+			var parsed any
+			if err := yaml.Unmarshal(data, &parsed); err != nil {
+				return nil, err
+			}
+			return json.Marshal(parsed)
+		},
+		Theme: "dark",
+	}))
+
+	// Mount docs router and the API router under a main mux
+	mainMux := http.NewServeMux()
+	mainMux.Handle("/", router)
+	mainMux.Handle("/docs/", docsRouter)
+	mainMux.HandleFunc("/docs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/docs/", http.StatusFound)
+	})
+
 	log.Printf("Zeus Sales Service running on :8080")
-	if err := http.ListenAndServe(":8080", router); err != nil {
+	if err := http.ListenAndServe(":8080", mainMux); err != nil {
 		log.Fatal(err)
 	}
 }

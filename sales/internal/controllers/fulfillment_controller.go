@@ -16,7 +16,7 @@ func NewFulfillmentController(svc *service.FulfillmentService) *FulfillmentContr
 
 func (controller *FulfillmentController) HandleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeErrorJSON(w, http.StatusMethodNotAllowed, http.StatusText(http.StatusMethodNotAllowed), nil)
 		return
 	}
 	status, err := controller.svc.GetQueueStatus(r.Context())
@@ -28,7 +28,7 @@ func (controller *FulfillmentController) HandleQueueStatus(w http.ResponseWriter
 
 func (controller *FulfillmentController) HandleProcessQueue(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeErrorJSON(w, http.StatusMethodNotAllowed, http.StatusText(http.StatusMethodNotAllowed), nil)
 		return
 	}
 	manifests, err := controller.svc.ProcessQueue(r.Context())

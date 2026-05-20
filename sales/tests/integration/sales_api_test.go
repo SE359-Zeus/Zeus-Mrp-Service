@@ -21,6 +21,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type responseEnvelope struct {
+	Message    string          `json:"message"`
+	StatusCode int             `json:"statusCode"`
+	Metadata   json.RawMessage `json:"metadata"`
+	Data       json.RawMessage `json:"data"`
+}
+
 func TestSalesAPI_OrderLifecycleAndLocking(t *testing.T) {
 	router, sqliteRepo, valkeyRepo := newIntegrationHarness(t)
 	require.NoError(t, valkeyRepo.SetATP(context.Background(), "SKU-LOCK", 5))
@@ -34,8 +41,10 @@ func TestSalesAPI_OrderLifecycleAndLocking(t *testing.T) {
 	createResp := doJSONRequest(t, router, http.MethodPost, "/api/v1/sales/orders", createBody)
 	require.Equal(t, http.StatusCreated, createResp.Code)
 
+	var createEnvelope responseEnvelope
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createEnvelope))
 	var created models.OrderResponse
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createEnvelope.Data, &created))
 	require.NotEqual(t, created.Order.ID.String(), "")
 
 	getResp := doJSONRequest(t, router, http.MethodGet, "/api/v1/sales/orders/"+created.Order.ID.String(), nil)
@@ -50,7 +59,9 @@ func TestSalesAPI_OrderLifecycleAndLocking(t *testing.T) {
 	var after models.OrderResponse
 	assertStatus := doJSONRequest(t, router, http.MethodGet, "/api/v1/sales/orders/"+created.Order.ID.String(), nil)
 	require.Equal(t, http.StatusOK, assertStatus.Code)
-	require.NoError(t, json.Unmarshal(assertStatus.Body.Bytes(), &after))
+	var afterEnvelope responseEnvelope
+	require.NoError(t, json.Unmarshal(assertStatus.Body.Bytes(), &afterEnvelope))
+	require.NoError(t, json.Unmarshal(afterEnvelope.Data, &after))
 	require.NotNil(t, after.Order.Status)
 	require.Equal(t, models.SalesOrderStatusProcessingCode, after.Order.Status.Code)
 	require.True(t, after.Order.Locked)

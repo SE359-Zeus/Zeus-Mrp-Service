@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"zeus-sales-service/internal/middlewares"
@@ -38,31 +37,14 @@ func (svc *FulfillmentService) rebuildQueue(ctx context.Context) ([]models.Alloc
 		if err != nil {
 			return nil, err
 		}
-		priority := 1.0
-		if client.Tier == models.ClientTierB2B {
-			priority = 0
-		}
 		entries = append(entries, models.AllocationQueueEntry{
-			OrderID:       order.ID,
-			ClientID:      client.ID,
-			ClientTier:    client.Tier,
-			RequiredDate:  order.RequiredDate,
-			IngestedAt:    order.CreatedAt,
-			PriorityScore: priority,
+			OrderID:      order.ID,
+			ClientID:     client.ID,
+			ClientTier:   client.Tier,
+			RequiredDate: order.RequiredDate,
+			IngestedAt:   order.CreatedAt,
 		})
 	}
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].PriorityScore != entries[j].PriorityScore {
-			return entries[i].PriorityScore < entries[j].PriorityScore
-		}
-		if !entries[i].RequiredDate.Equal(entries[j].RequiredDate) {
-			return entries[i].RequiredDate.Before(entries[j].RequiredDate)
-		}
-		if !entries[i].IngestedAt.Equal(entries[j].IngestedAt) {
-			return entries[i].IngestedAt.Before(entries[j].IngestedAt)
-		}
-		return entries[i].OrderID.String() < entries[j].OrderID.String()
-	})
 	if err := svc.valkey.ClearQueue(ctx); err != nil {
 		return nil, err
 	}

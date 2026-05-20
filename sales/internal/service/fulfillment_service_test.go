@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFulfillmentService_BuildQueue_SortsByTierThenDateThenFIFO(t *testing.T) {
+func TestFulfillmentService_BuildQueue_SortsByTimestamp(t *testing.T) {
 	db := setupMockDbRepo()
 	cache := setupMockCacheRepo()
 	svc := newTestServicesWithMocks(db, cache).Fulfillment
@@ -37,9 +37,9 @@ func TestFulfillmentService_BuildQueue_SortsByTierThenDateThenFIFO(t *testing.T)
 	queue, err := svc.BuildQueue(context.Background())
 	require.NoError(t, err)
 	require.Len(t, queue, 3)
-	assert.Equal(t, order2.ID, queue[0].OrderID)
-	assert.Equal(t, order3.ID, queue[1].OrderID)
-	assert.Equal(t, order1.ID, queue[2].OrderID)
+	assert.Equal(t, order1.ID, queue[0].OrderID)
+	assert.Equal(t, order2.ID, queue[1].OrderID)
+	assert.Equal(t, order3.ID, queue[2].OrderID)
 	db.AssertExpectations(t)
 	cache.AssertExpectations(t)
 }
@@ -100,7 +100,7 @@ func TestFulfillmentService_ProcessQueue_StopsOnInventoryDeficit(t *testing.T) {
 		StatusID:           defaultPendingStatus().ID,
 		Status:             defaultPendingStatus(),
 	}
-	entry := models.AllocationQueueEntry{OrderID: orderID, ClientID: clientID, ClientTier: models.ClientTierB2C, RequiredDate: order.RequiredDate, IngestedAt: time.Now().UTC(), PriorityScore: 1}
+	entry := models.AllocationQueueEntry{OrderID: orderID, ClientID: clientID, ClientTier: models.ClientTierB2C, RequiredDate: order.RequiredDate, IngestedAt: time.Now().UTC()}
 	items := []models.SalesOrderItem{{ID: uuid.New(), OrderID: orderID, SKU: "SKU-X", RequestedQty: 2, UnitPrice: 1}}
 
 	db.On("GetClient", mock.Anything, clientID).Return(&models.Client{ID: clientID, Name: "Blocked One", Tier: models.ClientTierB2C}, nil).Maybe()
