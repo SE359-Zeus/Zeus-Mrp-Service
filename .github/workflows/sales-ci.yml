@@ -2,9 +2,9 @@ name: sales CI workflow
 
 on:
   push:
-    branches: ["main-sales"]
+    branches: ["sales"]
   pull_request:
-    branches: ["main-sales"]
+    branches: ["sales"]
   workflow_dispatch:
 
 env:
