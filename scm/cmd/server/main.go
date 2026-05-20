@@ -43,7 +43,7 @@ func main() {
 			deleted_at DATETIME
 		)
 	`)
-	
+
 	var keyCount int64
 	db.Raw("SELECT COUNT(*) FROM api_keys WHERE deleted_at IS NULL").Scan(&keyCount)
 	if keyCount == 0 {
