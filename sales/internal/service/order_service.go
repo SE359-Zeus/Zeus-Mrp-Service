@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"zeus-sales-service/internal/config"
+	"zeus-sales-service/config"
 	"zeus-sales-service/internal/middlewares"
 	"zeus-sales-service/internal/models"
 	"zeus-sales-service/internal/repository"
