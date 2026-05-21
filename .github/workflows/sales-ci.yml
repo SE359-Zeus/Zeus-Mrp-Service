@@ -11,6 +11,7 @@ env:
   GO_VERSION_FILE: sales/go.mod
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/sales
+  IMAGE_VERSION: v${{ github.run_number }}
 
 defaults:
   run:
@@ -101,4 +102,9 @@ jobs:
           context: ./sales
           file: ./sales/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
+          build-args: |
+            VERSION=${{ env.IMAGE_VERSION }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:${{ env.IMAGE_VERSION }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:sha-${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}:latest
