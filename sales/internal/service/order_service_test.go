@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -136,6 +137,132 @@ func TestOrderService_UpdateAndCancel_RespectLockAndStatus(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "conflict")
 	db.AssertExpectations(t)
+}
+
+func TestOrderService_CancelOrder_MarksPendingOrderCancelled(t *testing.T) {
+	db := setupMockDbRepo()
+	cache := setupMockCacheRepo()
+	svc := newTestServicesWithMocks(db, cache).Orders
+	orderID := uuid.New()
+	clientID := uuid.New()
+	pendingStatus := defaultPendingStatus()
+	cancelledStatus := defaultCancelledStatus()
+	order := &models.SalesOrder{
+		ID:                 orderID,
+		ClientID:           clientID,
+		ClientName:         "Cancel Me Co",
+		DestinationAddress: "Dock 7",
+		RequiredDate:       time.Now().Add(48 * time.Hour).UTC(),
+		StatusID:           pendingStatus.ID,
+		Locked:             false,
+	}
+
+	db.On("GetOrder", mock.Anything, orderID).Return(order, nil)
+	db.On("GetOrderStatusByID", mock.Anything, pendingStatus.ID).Return(pendingStatus, nil)
+	db.On("GetOrderStatusByCode", mock.Anything, models.SalesOrderStatusCancelledCode).Return(cancelledStatus, nil)
+	db.On("UpdateOrder", mock.Anything, mock.MatchedBy(func(updated *models.SalesOrder) bool {
+		return updated.ID == orderID && updated.StatusID == cancelledStatus.ID && updated.Status != nil && updated.Status.Code == models.SalesOrderStatusCancelledCode
+	})).Return(nil)
+	cache.On("ClearQueue", mock.Anything).Return(nil)
+
+	err := svc.CancelOrder(context.Background(), orderID)
+	require.NoError(t, err)
+	db.AssertExpectations(t)
+	cache.AssertExpectations(t)
+}
+
+func TestOrderService_CancelOrder_IgnoresCacheCleanupFailure(t *testing.T) {
+	db := setupMockDbRepo()
+	cache := setupMockCacheRepo()
+	svc := newTestServicesWithMocks(db, cache).Orders
+	orderID := uuid.New()
+	clientID := uuid.New()
+	pendingStatus := defaultPendingStatus()
+	cancelledStatus := defaultCancelledStatus()
+	order := &models.SalesOrder{
+		ID:                 orderID,
+		ClientID:           clientID,
+		ClientName:         "Cancel Me Co",
+		DestinationAddress: "Dock 7",
+		RequiredDate:       time.Now().Add(48 * time.Hour).UTC(),
+		StatusID:           pendingStatus.ID,
+		Locked:             false,
+	}
+
+	db.On("GetOrder", mock.Anything, orderID).Return(order, nil)
+	db.On("GetOrderStatusByID", mock.Anything, pendingStatus.ID).Return(pendingStatus, nil)
+	db.On("GetOrderStatusByCode", mock.Anything, models.SalesOrderStatusCancelledCode).Return(cancelledStatus, nil)
+	db.On("UpdateOrder", mock.Anything, mock.MatchedBy(func(updated *models.SalesOrder) bool {
+		return updated.ID == orderID && updated.StatusID == cancelledStatus.ID && updated.Status != nil && updated.Status.Code == models.SalesOrderStatusCancelledCode
+	})).Return(nil)
+	cache.On("ClearQueue", mock.Anything).Return(fmt.Errorf("redis down"))
+
+	err := svc.CancelOrder(context.Background(), orderID)
+	require.NoError(t, err)
+	db.AssertExpectations(t)
+	cache.AssertExpectations(t)
+}
+
+func TestOrderService_ListOrders_ReturnsSummaryRows(t *testing.T) {
+	db := setupMockDbRepo()
+	cache := setupMockCacheRepo()
+	svc := newTestServicesWithMocks(db, cache).Orders
+	orderID := uuid.New()
+	clientID := uuid.New()
+	status := defaultPendingStatus()
+	orders := []models.SalesOrder{{
+		ID:           orderID,
+		ClientID:     clientID,
+		ClientName:   "Acme",
+		RequiredDate: time.Date(2026, time.January, 2, 10, 0, 0, 0, time.UTC),
+		StatusID:     status.ID,
+		Status:       status,
+		TotalValue:   99.5,
+	}}
+
+	db.On("ListOrders", mock.Anything).Return(orders, nil)
+	db.On("GetClient", mock.Anything, clientID).Return(&models.Client{ID: clientID, Name: "Acme"}, nil)
+
+	rows, err := svc.ListOrders(context.Background())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, orderID, rows[0].OrderID)
+	assert.Equal(t, "Acme", rows[0].ClientName)
+	assert.Equal(t, status.Code, rows[0].Status)
+	assert.InDelta(t, 99.5, rows[0].TotalValue, 0.0001)
+	db.AssertExpectations(t)
+}
+
+func TestOrderService_CreateOrder_AcceptsCamelCaseDatePayload(t *testing.T) {
+	db := setupMockDbRepo()
+	cache := setupMockCacheRepo()
+	svc := newTestServicesWithMocks(db, cache).Orders
+	pendingStatus := defaultPendingStatus()
+
+	db.On("GetClientByName", mock.Anything, "Hung").Return(nil, rootrepo.ErrNotFound)
+	db.On("CreateClient", mock.Anything, mock.AnythingOfType("*models.Client")).Return(nil)
+	db.On("GetOrderStatusByCode", mock.Anything, models.SalesOrderStatusPendingCode).Return(pendingStatus, nil)
+	db.On("CreateOrder", mock.Anything, mock.AnythingOfType("*models.SalesOrder")).Return(nil)
+	db.On("CreateOrderItem", mock.Anything, mock.AnythingOfType("*models.SalesOrderItem")).Return(nil)
+	db.On("UpdateClient", mock.Anything, mock.AnythingOfType("*models.Client")).Return(nil)
+	cache.On("EnqueueOrder", mock.Anything, mock.AnythingOfType("models.AllocationQueueEntry")).Return(nil)
+	db.On("GetClient", mock.Anything, mock.Anything).Return(&models.Client{ID: uuid.New(), Name: "Hung", Tier: models.ClientTierB2B}, nil)
+
+	response, err := svc.CreateOrder(context.Background(), models.CreateOrderRequest{
+		ClientName:         "Hung",
+		DestinationAddress: "123 Nguyen Van Troi, TPHCM",
+		ClientTier:         models.ClientTierB2B,
+		RequiredDate:       time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC),
+		Items: []models.OrderItemRequest{{
+			RequestedQty: 1,
+			SKU:          "sadfawefdf",
+			UnitPrice:    1,
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.NotNil(t, response.Order.Status)
+	assert.Equal(t, models.SalesOrderStatusPendingCode, response.Order.Status.Code)
 }
 
 func ptrString(value string) *string {

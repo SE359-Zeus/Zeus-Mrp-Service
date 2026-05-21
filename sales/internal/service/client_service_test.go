@@ -75,6 +75,33 @@ func TestClientService_UpdateClient_SuccessClearsQueue(t *testing.T) {
 	cache.AssertExpectations(t)
 }
 
+func TestClientService_UpdateClient_AllowsPartialPatch(t *testing.T) {
+	db := setupMockDbRepo()
+	cache := setupMockCacheRepo()
+	svc := newTestServicesWithMocks(db, cache).Clients
+
+	id := uuid.New()
+	client := &models.Client{ID: id, Name: "Old Name", Tier: models.ClientTierB2C, DefaultDestinationAddress: "Old Address"}
+	db.On("GetClient", mock.Anything, id).Return(client, nil)
+	db.On("UpdateClient", mock.Anything, mock.MatchedBy(func(updated *models.Client) bool {
+		return updated.Name == "Old Name" && updated.Tier == models.ClientTierB2B && updated.DefaultDestinationAddress == "New Address"
+	})).Return(nil)
+	cache.On("ClearQueue", mock.Anything).Return(nil)
+
+	tier := models.ClientTierB2B
+	updated, err := svc.UpdateClient(context.Background(), id, models.UpdateClientRequest{
+		Tier:                      &tier,
+		DefaultDestinationAddress: ptrString("New Address"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.Equal(t, "Old Name", updated.Name)
+	assert.Equal(t, models.ClientTierB2B, updated.Tier)
+	assert.Equal(t, "New Address", updated.DefaultDestinationAddress)
+	db.AssertExpectations(t)
+	cache.AssertExpectations(t)
+}
+
 func TestClientService_UpdateClient_NotFound(t *testing.T) {
 	db := setupMockDbRepo()
 	cache := setupMockCacheRepo()

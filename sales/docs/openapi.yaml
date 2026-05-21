@@ -228,48 +228,6 @@ paths:
                     statusCode: 409
                     metadata: {}
                     data: {}
-    delete:
-      summary: DELETE /orders/{id}
-      description: Cancel an order that has not started processing.
-      responses:
-        '200':
-          description: Order cancelled
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Envelope'
-              examples:
-                cancelled:
-                  value:
-                    message: "order cancelled"
-                    statusCode: 200
-                    data: {}
-        '409':
-          description: Conflict (cannot cancel once processing started)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-              examples:
-                error:
-                  value:
-                    message: "conflict: order cannot be cancelled once processing has started"
-                    statusCode: 409
-                    metadata: {}
-                    data: {}
-        '404':
-          description: Order not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-              examples:
-                error:
-                  value:
-                    message: "not found"
-                    statusCode: 404
-                    metadata: {}
-                    data: {}
     post:
       summary: POST /orders/{id}
       description: Trigger inventory reservation and MRP processing for the selected order.
@@ -310,6 +268,56 @@ paths:
                   value:
                     message: "mrp service returned status 500"
                     statusCode: 500
+                    metadata: {}
+                    data: {}
+
+  /orders/{id}/cancel:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    post:
+      summary: POST /orders/{id}/cancel
+      description: Cancel a pending order explicitly through a dedicated action endpoint.
+      responses:
+        '200':
+          description: Order cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+              examples:
+                cancelled:
+                  value:
+                    message: "order cancelled"
+                    statusCode: 200
+                    data: {}
+        '409':
+          description: Conflict (cannot cancel once processing started)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                error:
+                  value:
+                    message: "conflict: order cannot be cancelled once processing has started"
+                    statusCode: 409
+                    metadata: {}
+                    data: {}
+        '404':
+          description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                error:
+                  value:
+                    message: "not found"
+                    statusCode: 404
                     metadata: {}
                     data: {}
 
@@ -387,7 +395,7 @@ paths:
                     data: {}
     patch:
       summary: PATCH /clients/{id}
-      description: Update editable client profile fields such as name and tier.
+      description: Update editable client profile fields such as name, tier, and default destination address.
       requestBody:
         required: true
         content:
@@ -589,8 +597,6 @@ components:
           type: string
         tier:
           type: string
-        imageUrl:
-          type: string
         totalLifetimeOrders:
           type: integer
     ClientsListData:
@@ -609,7 +615,7 @@ components:
           type: string
         tier:
           type: string
-        imageUrl:
+        defaultDestinationAddress:
           type: string
     CreateOrderRequest:
       type: object

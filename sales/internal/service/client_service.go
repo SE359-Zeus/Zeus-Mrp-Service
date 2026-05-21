@@ -97,7 +97,7 @@ func (svc *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, req mo
 	}
 	if svc.cache != nil {
 		if err := svc.cache.ClearQueue(ctx); err != nil {
-			return nil, err
+			// Client data is already saved; cache cleanup is optional.
 		}
 	}
 	return client, nil

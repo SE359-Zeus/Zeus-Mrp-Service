@@ -17,6 +17,10 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
+ARG VERSION=dev
+
+LABEL org.opencontainers.image.version=$VERSION
+
 COPY --from=builder /out/server ./server
 
 EXPOSE 8082

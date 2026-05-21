@@ -113,12 +113,23 @@ func (controller *OrderController) HandleOrderByID(w http.ResponseWriter, r *htt
 			panic(err)
 		}
 		writeJSON(w, http.StatusOK, order)
-	case http.MethodDelete:
-		if err := controller.svc.CancelOrder(r.Context(), id); err != nil {
-			panic(err)
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"message": "order cancelled"})
 	default:
 		writeErrorJSON(w, http.StatusMethodNotAllowed, http.StatusText(http.StatusMethodNotAllowed), nil)
 	}
+}
+
+func (controller *OrderController) HandleCancelOrder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErrorJSON(w, http.StatusMethodNotAllowed, http.StatusText(http.StatusMethodNotAllowed), nil)
+		return
+	}
+	id, action, ok := parseIDAndAction(r.URL.Path, "/api/v1/sales/orders/")
+	if !ok || action != "cancel" {
+		writeErrorJSON(w, http.StatusBadRequest, "invalid order id", nil)
+		return
+	}
+	if err := controller.svc.CancelOrder(r.Context(), id); err != nil {
+		panic(err)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "order cancelled"})
 }

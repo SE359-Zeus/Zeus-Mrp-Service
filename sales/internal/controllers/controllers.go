@@ -16,6 +16,7 @@ func NewMux(services *service.Services) http.Handler {
 	mux.HandleFunc("/api/v1/sales/orders", orderController.HandleOrders)
 	mux.HandleFunc("/api/v1/sales/orders/", orderController.HandleOrderByID)
 	mux.HandleFunc("/api/v1/sales/orders/:id", orderController.HandleOrderByID)
+	mux.HandleFunc("/api/v1/sales/orders/{id}/cancel", orderController.HandleCancelOrder)
 	mux.HandleFunc("/api/v1/sales/clients", clientController.HandleClients)
 	mux.HandleFunc("/api/v1/sales/clients/", clientController.HandleClientByID)
 	mux.HandleFunc("/api/v1/sales/clients/:id", clientController.HandleClientByID)

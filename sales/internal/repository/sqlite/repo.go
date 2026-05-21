@@ -22,6 +22,13 @@ func Open(dsn string) (*Repository, error) {
 	if err != nil {
 		return nil, err
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+		return nil, err
+	}
 	repo := &Repository{db: db}
 	if err := repo.EnsureSchema(context.Background()); err != nil {
 		return nil, err

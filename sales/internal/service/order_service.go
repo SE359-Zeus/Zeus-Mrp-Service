@@ -111,7 +111,7 @@ func (svc *OrderService) CreateOrder(ctx context.Context, req models.CreateOrder
 			RequiredDate: order.RequiredDate,
 			IngestedAt:   order.CreatedAt,
 		}); err != nil {
-			return nil, err
+			// The order is already persisted; cache warmup must not fail the request.
 		}
 	}
 	return svc.buildResponse(ctx, order, items)
@@ -132,24 +132,33 @@ func (svc *OrderService) GetOrder(ctx context.Context, id uuid.UUID) (*models.Or
 	return svc.buildResponse(ctx, order, items)
 }
 
-func (svc *OrderService) ListOrders(ctx context.Context) ([]models.OrderResponse, error) {
+func (svc *OrderService) ListOrders(ctx context.Context) ([]models.OrderListItemResponse, error) {
 	orders, err := svc.repo.ListOrders(ctx)
 	if err != nil {
 		return nil, err
 	}
-	responses := make([]models.OrderResponse, 0, len(orders))
+	responses := make([]models.OrderListItemResponse, 0, len(orders))
 	for _, order := range orders {
-		items, _ := svc.repo.GetOrderItems(ctx, order.ID)
 		client, _ := svc.repo.GetClient(ctx, order.ClientID)
 		if client == nil {
 			client = &models.Client{}
 		}
-		responses = append(responses, models.OrderResponse{Order: order, Client: *client, Items: items})
+		status := ""
+		if order.Status != nil {
+			status = order.Status.Code
+		}
+		responses = append(responses, models.OrderListItemResponse{
+			OrderID:      order.ID,
+			ClientName:   client.Name,
+			RequiredDate: order.RequiredDate,
+			TotalValue:   order.TotalValue,
+			Status:       status,
+		})
 	}
 	return responses, nil
 }
 
-func (svc *OrderService) ListOrdersWithFilters(ctx context.Context, states []string, date *time.Time) ([]models.OrderResponse, error) {
+func (svc *OrderService) ListOrdersWithFilters(ctx context.Context, states []string, date *time.Time) ([]models.OrderListItemResponse, error) {
 	orders, err := svc.repo.ListOrders(ctx)
 	if err != nil {
 		return nil, err
@@ -159,7 +168,7 @@ func (svc *OrderService) ListOrdersWithFilters(ctx context.Context, states []str
 	for _, s := range states {
 		stateSet[strings.ToUpper(strings.TrimSpace(s))] = struct{}{}
 	}
-	responses := make([]models.OrderResponse, 0, len(orders))
+	responses := make([]models.OrderListItemResponse, 0, len(orders))
 	for _, order := range orders {
 		// filter by date if provided (compare date part of RequiredDate)
 		if date != nil {
@@ -183,12 +192,21 @@ func (svc *OrderService) ListOrdersWithFilters(ctx context.Context, states []str
 		if !includeByState {
 			continue
 		}
-		items, _ := svc.repo.GetOrderItems(ctx, order.ID)
 		client, _ := svc.repo.GetClient(ctx, order.ClientID)
 		if client == nil {
 			client = &models.Client{}
 		}
-		responses = append(responses, models.OrderResponse{Order: order, Client: *client, Items: items})
+		status := ""
+		if order.Status != nil {
+			status = order.Status.Code
+		}
+		responses = append(responses, models.OrderListItemResponse{
+			OrderID:      order.ID,
+			ClientName:   client.Name,
+			RequiredDate: order.RequiredDate,
+			TotalValue:   order.TotalValue,
+			Status:       status,
+		})
 	}
 	return responses, nil
 }
@@ -228,19 +246,28 @@ func (svc *OrderService) GetMetrics(ctx context.Context) (*MetricsResponse, erro
 	return &MetricsResponse{TotalPending: totalPending, ActiveProcessingValue: activeProcessingValue, CompletedLast24Hours: completed24}, nil
 }
 
-func (svc *OrderService) ListPendingOrders(ctx context.Context) ([]models.OrderResponse, error) {
+func (svc *OrderService) ListPendingOrders(ctx context.Context) ([]models.OrderListItemResponse, error) {
 	orders, err := svc.repo.ListPendingOrders(ctx)
 	if err != nil {
 		return nil, err
 	}
-	responses := make([]models.OrderResponse, 0, len(orders))
+	responses := make([]models.OrderListItemResponse, 0, len(orders))
 	for _, order := range orders {
-		items, _ := svc.repo.GetOrderItems(ctx, order.ID)
 		client, _ := svc.repo.GetClient(ctx, order.ClientID)
 		if client == nil {
 			client = &models.Client{}
 		}
-		responses = append(responses, models.OrderResponse{Order: order, Client: *client, Items: items})
+		status := ""
+		if order.Status != nil {
+			status = order.Status.Code
+		}
+		responses = append(responses, models.OrderListItemResponse{
+			OrderID:      order.ID,
+			ClientName:   client.Name,
+			RequiredDate: order.RequiredDate,
+			TotalValue:   order.TotalValue,
+			Status:       status,
+		})
 	}
 	return responses, nil
 }
@@ -253,7 +280,11 @@ func (svc *OrderService) UpdateOrder(ctx context.Context, id uuid.UUID, req mode
 	if err != nil {
 		return nil, err
 	}
-	if order.Locked || order.Status == nil || order.Status.Code != models.SalesOrderStatusPendingCode {
+	status, err := svc.resolveOrderStatus(ctx, order)
+	if err != nil {
+		return nil, err
+	}
+	if order.Locked || status == nil || status.Code != models.SalesOrderStatusPendingCode {
 		return nil, fmt.Errorf("%w: order is locked or no longer editable", middlewares.ErrConflict)
 	}
 	if req.DestinationAddress == nil && req.RequiredDate == nil && len(req.Items) == 0 {
@@ -321,7 +352,11 @@ func (svc *OrderService) CancelOrder(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	if order.Locked || order.Status == nil || order.Status.Code != models.SalesOrderStatusPendingCode {
+	status, err := svc.resolveOrderStatus(ctx, order)
+	if err != nil {
+		return err
+	}
+	if order.Locked || status == nil || status.Code != models.SalesOrderStatusPendingCode {
 		return fmt.Errorf("%w: order cannot be cancelled once processing has started", middlewares.ErrConflict)
 	}
 	cancelledStatus, err := svc.repo.GetOrderStatusByCode(ctx, models.SalesOrderStatusCancelledCode)
@@ -335,11 +370,27 @@ func (svc *OrderService) CancelOrder(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	if svc.cache != nil {
-		if err := svc.cache.ClearQueue(ctx); err != nil {
-			return err
-		}
+		_ = svc.cache.ClearQueue(ctx)
 	}
 	return nil
+}
+
+func (svc *OrderService) resolveOrderStatus(ctx context.Context, order *models.SalesOrder) (*models.SalesOrderStatusLUT, error) {
+	if order == nil {
+		return nil, nil
+	}
+	if order.Status != nil && strings.TrimSpace(order.Status.Code) != "" {
+		return order.Status, nil
+	}
+	if order.StatusID == uuid.Nil {
+		return nil, nil
+	}
+	status, err := svc.repo.GetOrderStatusByID(ctx, order.StatusID)
+	if err != nil {
+		return nil, err
+	}
+	order.Status = status
+	return status, nil
 }
 
 // ReserveInventory sends the order items to the MRP service to reserve inventory and trigger MRP processing.

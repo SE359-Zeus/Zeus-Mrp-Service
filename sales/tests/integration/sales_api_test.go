@@ -92,6 +92,102 @@ func TestSalesAPI_ClientRegistryAndQueueStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, clientResp.Code)
 }
 
+func TestSalesAPI_CancelOrderEndpoint(t *testing.T) {
+	router, _, valkeyRepo := newIntegrationHarness(t)
+	require.NoError(t, valkeyRepo.SetATP(context.Background(), "SKU-CANCEL", 4))
+
+	createResp := doJSONRequest(t, router, http.MethodPost, "/api/v1/sales/orders", models.CreateOrderRequest{
+		ClientName:         "Cancel Client",
+		DestinationAddress: "Dock Cancel",
+		RequiredDate:       time.Now().Add(72 * time.Hour).UTC(),
+		Items:              []models.OrderItemRequest{{SKU: "SKU-CANCEL", RequestedQty: 2, UnitPrice: 7}},
+	})
+	require.Equal(t, http.StatusCreated, createResp.Code)
+
+	var createEnvelope responseEnvelope
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createEnvelope))
+	var created models.OrderResponse
+	require.NoError(t, json.Unmarshal(createEnvelope.Data, &created))
+
+	cancelResp := doJSONRequest(t, router, http.MethodPost, "/api/v1/sales/orders/"+created.Order.ID.String()+"/cancel", nil)
+	require.Equal(t, http.StatusOK, cancelResp.Code)
+
+	getResp := doJSONRequest(t, router, http.MethodGet, "/api/v1/sales/orders/"+created.Order.ID.String(), nil)
+	require.Equal(t, http.StatusOK, getResp.Code)
+
+	var getEnvelope responseEnvelope
+	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getEnvelope))
+	var cancelled models.OrderResponse
+	require.NoError(t, json.Unmarshal(getEnvelope.Data, &cancelled))
+	require.NotNil(t, cancelled.Order.Status)
+	require.Equal(t, models.SalesOrderStatusCancelledCode, cancelled.Order.Status.Code)
+}
+
+func TestSalesAPI_CreateOrder_AcceptsCamelCaseRequestBody(t *testing.T) {
+	router, _, valkeyRepo := newIntegrationHarness(t)
+	require.NoError(t, valkeyRepo.SetATP(context.Background(), "sadfawefdf", 3))
+
+	body := []byte(`{
+		"clientName": "Hung",
+		"clientTier": "B2B",
+		"destinationAddress": "123 Nguyen Van Troi, TPHCM",
+		"items": [
+			{
+				"requestedQty": 1,
+				"sku": "sadfawefdf",
+				"unitPrice": 1
+			}
+		],
+		"requiredDate": "2026-1-1T10:00:00"
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sales/orders", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var envelope responseEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	var created models.OrderResponse
+	require.NoError(t, json.Unmarshal(envelope.Data, &created))
+	require.Equal(t, "Hung", created.Order.ClientName)
+	require.Equal(t, models.ClientTierB2B, created.Client.Tier)
+	require.NotNil(t, created.Order.Status)
+	require.Equal(t, models.SalesOrderStatusPendingCode, created.Order.Status.Code)
+}
+
+func TestSalesAPI_ListOrders_ReturnsSummaryRows(t *testing.T) {
+	router, _, valkeyRepo := newIntegrationHarness(t)
+	require.NoError(t, valkeyRepo.SetATP(context.Background(), "SKU-SUMMARY", 3))
+
+	createResp := doJSONRequest(t, router, http.MethodPost, "/api/v1/sales/orders", models.CreateOrderRequest{
+		ClientName:         "Summary Client",
+		DestinationAddress: "Summary Dock",
+		ClientTier:         models.ClientTierB2B,
+		RequiredDate:       time.Date(2026, time.January, 3, 10, 0, 0, 0, time.UTC),
+		Items:              []models.OrderItemRequest{{SKU: "SKU-SUMMARY", RequestedQty: 1, UnitPrice: 5}},
+	})
+	require.Equal(t, http.StatusCreated, createResp.Code)
+
+	listResp := doJSONRequest(t, router, http.MethodGet, "/api/v1/sales/orders", nil)
+	require.Equal(t, http.StatusOK, listResp.Code)
+
+	var listEnvelope responseEnvelope
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listEnvelope))
+	var rows []struct {
+		OrderID      string    `json:"orderId"`
+		ClientName   string    `json:"clientName"`
+		RequiredDate time.Time `json:"requiredDate"`
+		TotalValue   float64   `json:"totalValue"`
+		Status       string    `json:"status"`
+	}
+	require.NoError(t, json.Unmarshal(listEnvelope.Data, &rows))
+	require.NotEmpty(t, rows)
+	require.Equal(t, "Summary Client", rows[0].ClientName)
+	require.Equal(t, models.SalesOrderStatusPendingCode, rows[0].Status)
+	require.NotZero(t, rows[0].OrderID)
+}
+
 func newIntegrationHarness(t *testing.T) (http.Handler, *sqlite.Repository, *valkey.Repository) {
 	t.Helper()
 	sqliteRepo, err := sqlite.Open(filepath.Join(t.TempDir(), "sales.db"))
