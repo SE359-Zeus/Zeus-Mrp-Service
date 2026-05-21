@@ -21,3 +21,13 @@ func (c *ProductionController) ExportReport(w http.ResponseWriter, r *http.Reque
 func (c *ProductionController) GetShortages(w http.ResponseWriter, r *http.Request) {
 	// Logic to call c.svc.RunBOMExplosion and return results
 }
+
+// GET /api/v1/mrp/readiness/{orderId}
+func (c *ProductionController) GetReadinessByOrderID(w http.ResponseWriter, r *http.Request) {
+	// TODO: Define handler for the order-specific readiness breakdown.
+}
+
+// POST /api/v1/mrp/readiness/{orderId}/generate-po
+func (c *ProductionController) GeneratePOForDeficits(w http.ResponseWriter, r *http.Request) {
+	// TODO: Define handler for PO draft generation from shortages.
+}
