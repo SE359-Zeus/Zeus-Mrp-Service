@@ -2,9 +2,9 @@ name: sales CI workflow
 
 on:
   push:
-    branches: ["sales"]
+    branches: ["main-sales"]
   pull_request:
-    branches: ["sales"]
+    branches: ["main-sales"]
   workflow_dispatch:
 
 env:
@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout source code
